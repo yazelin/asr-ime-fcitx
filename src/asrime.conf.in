@@ -1,0 +1,7 @@
+[InputMethod]
+Name=ASR Voice Native (Fcitx5)
+Icon=audio-input-microphone
+Label=🎤
+LangCode=zh_TW
+Addon=asrimefcitxnative
+Configurable=False

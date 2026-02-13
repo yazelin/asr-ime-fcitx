@@ -1,0 +1,8 @@
+[Addon]
+Name=ASR Voice Native
+Category=InputMethod
+Version=@PROJECT_VERSION@
+Library=libasrimefcitxnative
+Type=SharedLibrary
+OnDemand=True
+Configurable=False
