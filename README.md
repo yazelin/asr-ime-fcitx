@@ -11,6 +11,14 @@ cd ~/SDD2/asr-ime-fcitx
 ./setup.sh --with-apt
 ```
 
+### 另一台電腦快速安裝（先不用手動 clone）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<你的帳號>/<你的repo>/main/bootstrap_install.sh | bash -s -- https://github.com/<你的帳號>/<你的repo>.git
+```
+
+> 這是「一鍵安裝」流程：你不用先自己 clone，但安裝程式仍會自動抓必要原始碼到本機。
+
 安裝會：
 - 建立 Python venv 並安裝 ASR 相依
 - 編譯並 **系統安裝** Fcitx5 addon（`/usr`，會需要 sudo）
@@ -62,8 +70,10 @@ ls /usr/lib/*/fcitx5/libasrimefcitxnative.so
 - 熱鍵（每行一個）
 - 是否 `process-on-stop`
 - 標點/斷句後處理：`none` / `heuristic` / `command`
-- 模型供應商預設：`copilot` / `gemini` / `cloud-core`
+- 模型供應商快速套用：`copilot` / `gemini` / `claude-code`
 - command 模式的 `program + args + timeout`
+- args 可用 `{text}` 代表辨識原文（例如 Copilot GPT-5 mini 預設）
+- 強制繁體輸出（避免簡體）
 
 改完熱鍵後請執行 `fcitx5-remote -r`；改完辨識後端後請 `./start.sh --stop && ./start.sh`。
 若設定面板勾選「儲存後自動套用」，會自動執行上述流程。
@@ -86,7 +96,7 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 ```
 
 `fcitx5-remote -n` 必須是 `asrime`，按熱鍵時日誌才會出現 `listening ON/OFF`。
-`./start.sh --status` 也會顯示 `listening: ON/OFF`、`mode`、`backend`、`postprocess`、最近一次辨識 `last_text`、以及 `last_error`（若有）。
+`./start.sh --status` 也會顯示 `listening: ON/OFF`、`mode`、`backend`、`postprocess`、`provider`、最近一次辨識 `last_text`、以及 `last_error`（若有）。
 
 預設是 `mode: on-stop`（切回 OFF 才做一次辨識，適合背景音大時）。  
 若想改回「停頓即送出」，用 `./start.sh -- --no-process-on-stop`。
@@ -96,3 +106,4 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 - `backend: google`：走 Google Web Speech（免費但非官方 SLA，需網路）。  
 - `backend: local`：走 `faster-whisper` 本機辨識（第一次會下載模型）。
 - `postprocess: heuristic` 會嘗試自動補常見中文標點；`command` 可接你指定的大語言模型 CLI。
+- 預設已改為 `copilot + gpt-5-mini` 的 command 後處理（會補標點、斷句、段落並維持繁體）。

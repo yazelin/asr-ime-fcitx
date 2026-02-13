@@ -54,6 +54,12 @@ if postprocess_mode:
 postprocess_provider = state.get("postprocess_provider")
 if postprocess_provider:
     print(f"provider: {postprocess_provider}")
+
+force_traditional = state.get("force_traditional")
+if force_traditional is True:
+    print("traditional: ON")
+elif force_traditional is False:
+    print("traditional: OFF")
 PY
 }
 

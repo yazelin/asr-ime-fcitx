@@ -30,7 +30,7 @@ rm -f \
   "$HOME/.local/share/fcitx5/inputmethod/asr-ime-fcitx-online.conf" \
   "$HOME/.local/share/fcitx5/addon/asrimefcitxnative.conf"
 
-chmod +x start.sh run_engine.sh daemon_asr.py settings_panel.py asr_ime_app.py
+chmod +x start.sh run_engine.sh daemon_asr.py settings_panel.py asr_ime_app.py bootstrap_install.sh
 
 mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/asr-ime-fcitx.desktop" <<EOF

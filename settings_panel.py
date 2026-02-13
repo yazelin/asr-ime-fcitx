@@ -18,14 +18,15 @@ HOTKEY_FILE = CONFIG_DIR / "hotkeys.conf"
 DEFAULT_CONFIG = {
     "backend": "google",
     "language": "zh-TW",
+    "force_traditional": True,
     "process_on_stop": True,
     "local_model": "small",
     "local_device": "auto",
     "local_compute_type": "auto",
-    "postprocess_mode": "heuristic",
-    "postprocess_provider": "custom",
-    "postprocess_program": "",
-    "postprocess_args": "",
+    "postprocess_mode": "command",
+    "postprocess_provider": "copilot",
+    "postprocess_program": "copilot",
+    "postprocess_args": '-s --model gpt-5-mini -p "請將以下語音辨識結果改寫為繁體中文，補上自然標點、斷句與段落；不要新增內容，只回傳結果：{text}" --allow-all',
     "postprocess_timeout_sec": 12,
     "auto_apply_on_save": True,
 }
@@ -36,7 +37,7 @@ PROVIDER_PRESETS = {
     "custom": ("", ""),
     "copilot": (
         "copilot",
-        "-s -p 請幫以下語句加入自然中文標點與斷句，只回傳處理後文字：{text} --allow-all",
+        '-s --model gpt-5-mini -p "請將以下語音辨識結果改寫為繁體中文，補上自然標點、斷句與段落；不要新增內容，只回傳結果：{text}" --allow-all',
     ),
     "gemini": (
         "gemini",
@@ -133,13 +134,14 @@ def main():
 
     backend_var = tk.StringVar(value=str(cfg.get("backend", "google")))
     language_var = tk.StringVar(value=str(cfg.get("language", "zh-TW")))
+    force_traditional_var = tk.BooleanVar(value=to_bool(cfg.get("force_traditional", True), True))
     process_on_stop_var = tk.BooleanVar(value=to_bool(cfg.get("process_on_stop", True), True))
     local_model_var = tk.StringVar(value=str(cfg.get("local_model", "small")))
     local_device_var = tk.StringVar(value=str(cfg.get("local_device", "auto")))
     local_compute_var = tk.StringVar(value=str(cfg.get("local_compute_type", "auto")))
 
-    post_mode_var = tk.StringVar(value=str(cfg.get("postprocess_mode", "heuristic")))
-    provider_var = tk.StringVar(value=str(cfg.get("postprocess_provider", "custom")))
+    post_mode_var = tk.StringVar(value=str(cfg.get("postprocess_mode", "command")))
+    provider_var = tk.StringVar(value=str(cfg.get("postprocess_provider", "copilot")))
     post_program_var = tk.StringVar(value=str(cfg.get("postprocess_program", "")))
     post_args_var = tk.StringVar(value=str(cfg.get("postprocess_args", "")))
     post_timeout_var = tk.StringVar(value=str(cfg.get("postprocess_timeout_sec", 12)))
@@ -154,6 +156,13 @@ def main():
 
     ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
     ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    row += 1
+
+    ttk.Checkbutton(
+        frame,
+        text="強制輸出繁體中文（避免簡體）",
+        variable=force_traditional_var,
+    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(8, 0))
     row += 1
 
     ttk.Checkbutton(
@@ -206,7 +215,7 @@ def main():
     ).grid(row=row, column=1, sticky="w")
     row += 1
 
-    ttk.Label(frame, text="模型供應商（預設）").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Label(frame, text="模型供應商（快速套用）").grid(row=row, column=0, sticky="w", pady=(8, 0))
     provider_box = ttk.Combobox(
         frame,
         textvariable=provider_var,
@@ -231,7 +240,7 @@ def main():
 
     ttk.Label(
         frame,
-        text="command 模式會把辨識文字送到 stdin，讀取 stdout 當最終輸出。",
+        text="command 模式會把辨識文字送到 stdin；若 args 含 {text} 會直接代入。",
     ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
     row += 1
 
@@ -285,6 +294,7 @@ def main():
         new_cfg = {
             "backend": backend_var.get().strip() or "google",
             "language": language,
+            "force_traditional": bool(force_traditional_var.get()),
             "process_on_stop": bool(process_on_stop_var.get()),
             "local_model": local_model_var.get().strip() or "small",
             "local_device": local_device_var.get().strip() or "auto",

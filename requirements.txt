@@ -2,3 +2,4 @@ numpy
 sounddevice
 SpeechRecognition
 faster-whisper
+opencc-python-reimplemented

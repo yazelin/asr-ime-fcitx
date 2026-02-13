@@ -55,10 +55,10 @@ DEFAULT_CONFIG = {
     "local_model": "small",
     "local_device": "auto",
     "local_compute_type": "auto",
-    "postprocess_mode": "heuristic",
-    "postprocess_provider": "custom",
-    "postprocess_program": "",
-    "postprocess_args": "",
+    "postprocess_mode": "command",
+    "postprocess_provider": "copilot",
+    "postprocess_program": "copilot",
+    "postprocess_args": '-s --model gpt-5-mini -p "請快速處理以下語音辨識結果：轉成繁體中文、補上自然標點與斷句、整理成短段落；不要新增內容，不要解釋，只回傳結果：{text}" --allow-all',
     "postprocess_timeout_sec": 12,
 }
 
@@ -385,6 +385,7 @@ class OnlineRecognizerWorker(threading.Thread):
         postprocess_program,
         postprocess_args,
         postprocess_timeout_sec,
+        force_traditional,
     ):
         super().__init__(daemon=True)
         self.backend = backend
@@ -404,6 +405,12 @@ class OnlineRecognizerWorker(threading.Thread):
         self.postprocess_program = postprocess_program
         self.postprocess_args = postprocess_args
         self.postprocess_timeout_sec = postprocess_timeout_sec
+        self.force_traditional = force_traditional
+        self.converter = None
+        if self.force_traditional and OpenCC is not None:
+            self.converter = OpenCC("s2twp")
+        elif self.force_traditional and OpenCC is None:
+            print("[warn] 未安裝 OpenCC，暫時無法強制繁體")
 
         if self.backend == "local":
             if WhisperModel is None:
@@ -479,6 +486,14 @@ class OnlineRecognizerWorker(threading.Thread):
             self.postprocess_timeout_sec,
         )
 
+    def normalize_text(self, text):
+        if not self.force_traditional or not self.converter:
+            return text
+        try:
+            return self.converter.convert(text)
+        except Exception:
+            return text
+
     def run(self):
         while not self.stop_event.is_set() or not self.jobs.empty():
             try:
@@ -510,10 +525,20 @@ class OnlineRecognizerWorker(threading.Thread):
                     print(f"[asr:{self.backend}] empty ({speech_seconds:.2f}s audio)")
                 continue
 
-            text, pp_err = self.postprocess_text(text)
+            raw_text = text
+            pp_start = time.perf_counter()
+            text, pp_err = self.postprocess_text(raw_text)
+            pp_sec = time.perf_counter() - pp_start
             if pp_err:
                 print(f"[warn] {pp_err}")
-                update_state(self.state_file, last_error=pp_err)
+
+            text = self.normalize_text(text)
+            pp_changed = text.strip() != raw_text.strip()
+            if self.postprocess_mode == "command":
+                print(
+                    f"[postprocess:command] {pp_sec:.2f}s changed={1 if pp_changed else 0}"
+                    + (f" err={pp_err}" if pp_err else "")
+                )
 
             if not text:
                 if self.verbose:
@@ -521,7 +546,15 @@ class OnlineRecognizerWorker(threading.Thread):
                 continue
 
             self._write_commit(text)
-            update_state(self.state_file, last_text=text, last_error="")
+            update_state(
+                self.state_file,
+                last_text=text,
+                last_raw_text=raw_text,
+                last_error="",
+                last_postprocess_error=pp_err,
+                last_postprocess_sec=round(pp_sec, 3),
+                last_postprocess_changed=pp_changed,
+            )
             notify("ASR 辨識結果", text[:80] + ("…" if len(text) > 80 else ""))
             print(
                 f"[asr:{self.backend}] {text}  "
@@ -706,6 +739,7 @@ def parse_args():
     parser.add_argument("--device", help="麥克風 index/序號/名稱關鍵字")
     parser.add_argument("--config-file", default=CONFIG_FILE)
     parser.add_argument("--language", default=None)
+    parser.add_argument("--force-traditional", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--backend", choices=["google", "local"], default=None)
     parser.add_argument("--local-model", default=None, help="local 模式模型名稱（tiny/base/small/...）")
     parser.add_argument("--local-device", choices=["auto", "cpu", "cuda"], default=None)
@@ -757,7 +791,8 @@ def main():
         mode=("on-stop" if args.process_on_stop else "silence"),
         backend=args.backend,
         postprocess_mode=args.postprocess_mode,
-        postprocess_provider=str(cfg.get("postprocess_provider", "custom")),
+        postprocess_provider=str(cfg.get("postprocess_provider", "copilot")),
+        force_traditional=args.force_traditional,
     )
 
     requested = resolve_input_device(args.device)
@@ -799,6 +834,7 @@ def main():
             postprocess_program=args.postprocess_program,
             postprocess_args=args.postprocess_args,
             postprocess_timeout_sec=args.postprocess_timeout_sec,
+            force_traditional=args.force_traditional,
         )
     except Exception as e:
         msg = f"辨識器初始化失敗：{e}"
@@ -819,7 +855,8 @@ def main():
             listening=False,
             backend=args.backend,
             postprocess_mode=args.postprocess_mode,
-            postprocess_provider=str(cfg.get("postprocess_provider", "custom")),
+            postprocess_provider=str(cfg.get("postprocess_provider", "copilot")),
+            force_traditional=args.force_traditional,
         )
         worker.stop()
         worker.join(timeout=5)
