@@ -98,6 +98,7 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 
 `fcitx5-remote -n` 必須是 `asrime`，按熱鍵時日誌才會出現 `listening ON/OFF`。
 `./start.sh --status` 也會顯示 `listening: ON/OFF`、`mode`、`backend`、`postprocess`、`provider`、最近一次辨識 `last_text`、以及 `last_error`（若有）。
+若 F8 有顯示錄音中/停止但沒有文字，先確認 `current_im: asrime`，並到設定面板指定正確麥克風（可按「列出麥克風」）。
 
 若看到 `org.freedesktop.portal.Error.NotFound`，通常是桌面 portal 設定訊息，**不是致命錯誤**，可先忽略。
 若設定面板打不開，先執行：`sudo apt install -y python3-tk`，再重跑 `./setup.sh --with-apt`。

@@ -74,6 +74,14 @@ def main():
         ok, out = run_cmd([str(start_sh), "--toggle"], root_dir)
         append(out or ("已切換錄音" if ok else "切換失敗"))
 
+    def do_switch_im():
+        run_cmd(["fcitx5-remote", "-o"], root_dir)
+        ok, out = run_cmd(["fcitx5-remote", "-s", "asrime"], root_dir)
+        _, current_im = run_cmd(["fcitx5-remote", "-n"], root_dir)
+        if current_im:
+            append(f"current_im: {current_im}")
+        append(out or ("已切換到 asrime" if ok else "切換輸入法失敗"))
+
     def do_status():
         ok, out = run_cmd([str(start_sh), "--status"], root_dir)
         append(out or ("狀態查詢失敗" if not ok else "無狀態"))
@@ -92,9 +100,10 @@ def main():
 
     ttk.Button(btn_row, text="啟動", command=do_start).grid(row=0, column=0, sticky="ew")
     ttk.Button(btn_row, text="停止", command=do_stop).grid(row=0, column=1, sticky="ew", padx=6)
-    ttk.Button(btn_row, text="切換錄音", command=do_toggle).grid(row=0, column=2, sticky="ew")
+    ttk.Button(btn_row, text="切換錄音(保底)", command=do_toggle).grid(row=0, column=2, sticky="ew")
     ttk.Button(btn_row, text="狀態", command=do_status).grid(row=1, column=0, sticky="ew", pady=(6, 0))
     ttk.Button(btn_row, text="設定", command=do_settings).grid(row=1, column=1, sticky="ew", padx=6, pady=(6, 0))
+    ttk.Button(btn_row, text="切到 ASR", command=do_switch_im).grid(row=1, column=2, sticky="ew", pady=(6, 0))
 
     do_status()
     root.mainloop()

@@ -18,6 +18,7 @@ HOTKEY_FILE = CONFIG_DIR / "hotkeys.conf"
 DEFAULT_CONFIG = {
     "backend": "google",
     "language": "zh-TW",
+    "input_device": "auto",
     "force_traditional": True,
     "process_on_stop": True,
     "local_model": "small",
@@ -155,6 +156,7 @@ def main():
 
     backend_var = tk.StringVar(value=str(cfg.get("backend", "google")))
     language_var = tk.StringVar(value=str(cfg.get("language", "zh-TW")))
+    input_device_var = tk.StringVar(value=str(cfg.get("input_device", "auto")))
     force_traditional_var = tk.BooleanVar(value=to_bool(cfg.get("force_traditional", True), True))
     process_on_stop_var = tk.BooleanVar(value=to_bool(cfg.get("process_on_stop", True), True))
     local_model_var = tk.StringVar(value=str(cfg.get("local_model", "small")))
@@ -177,6 +179,11 @@ def main():
 
     ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
     ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="ew", pady=(8, 0))
+    row += 1
+
+    input_device_row = row
+    ttk.Label(frame, text="麥克風（auto / index / 關鍵字）").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=input_device_var, width=28).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Checkbutton(
@@ -294,6 +301,36 @@ def main():
 
     provider_box.bind("<<ComboboxSelected>>", on_provider_change)
 
+    def on_list_devices():
+        py_bin = script_dir / ".venv" / "bin" / "python"
+        daemon_py = script_dir / "daemon_asr.py"
+        if not py_bin.exists() or not daemon_py.exists():
+            messagebox.showerror("錯誤", "找不到 daemon 或虛擬環境，請先執行 ./setup.sh --with-apt")
+            return
+        try:
+            proc = subprocess.run(
+                [str(py_bin), str(daemon_py), "--list-devices"],
+                cwd=script_dir,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception as e:
+            messagebox.showerror("錯誤", f"列出麥克風失敗：{e}")
+            return
+        output = (proc.stdout or proc.stderr or "").strip()
+        if not output:
+            output = "未偵測到可用麥克風。"
+        messagebox.showinfo("可用麥克風清單", output)
+
+    ttk.Button(frame, text="列出麥克風", command=on_list_devices).grid(
+        row=input_device_row,
+        column=2,
+        sticky="w",
+        padx=(8, 0),
+        pady=(8, 0),
+    )
+
     def on_save():
         language = language_var.get().strip()
         if not language:
@@ -315,6 +352,7 @@ def main():
         new_cfg = {
             "backend": backend_var.get().strip() or "google",
             "language": language,
+            "input_device": input_device_var.get().strip() or "auto",
             "force_traditional": bool(force_traditional_var.get()),
             "process_on_stop": bool(process_on_stop_var.get()),
             "local_model": local_model_var.get().strip() or "small",

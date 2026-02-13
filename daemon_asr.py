@@ -7,6 +7,7 @@ Fcitx native addon companion daemon.
 """
 
 import argparse
+import errno
 import json
 import os
 import queue
@@ -51,6 +52,8 @@ DEFAULT_CONFIG = {
     "backend": "google",
     "language": "zh-TW",
     "force_traditional": True,
+    "input_device": "auto",
+    "auto_start_listening": True,
     "process_on_stop": True,
     "local_model": "small",
     "local_device": "auto",
@@ -133,6 +136,10 @@ def apply_config(args, cfg):
         args.language = str(cfg.get("language", "zh-TW"))
     if args.force_traditional is None:
         args.force_traditional = to_bool(cfg.get("force_traditional", True), True)
+    if args.device is None:
+        device_cfg = str(cfg.get("input_device", "auto")).strip()
+        if device_cfg and device_cfg.lower() != "auto":
+            args.device = device_cfg
     if args.process_on_stop is None:
         args.process_on_stop = to_bool(cfg.get("process_on_stop", True), True)
     if args.local_model is None:
@@ -221,6 +228,10 @@ def select_best_input_device(preferred_idx=None):
             score += 35
         if "usb" in n or "headset" in n or "mic" in n or "microphone" in n:
             score += 15
+        if "input" in n:
+            score += 10
+        if "monitor" in n or "stereo mix" in n:
+            score -= 80
         if "hw:" in n:
             score -= 10
         return score
@@ -452,7 +463,14 @@ class OnlineRecognizerWorker(threading.Thread):
             return
         try:
             fd = os.open(self.commit_fifo, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError:
+        except OSError as e:
+            if e.errno in {errno.ENXIO, errno.ENOENT}:
+                msg = "無法提交文字：請先切到 asrime 輸入法"
+            else:
+                msg = f"無法提交文字：{e}"
+            print(f"[warn] {msg}")
+            update_state(self.state_file, last_error=msg)
+            notify("ASR 無法輸入文字", msg)
             return
         try:
             os.write(fd, (text + "\n").encode("utf-8", errors="ignore"))
@@ -505,6 +523,8 @@ class OnlineRecognizerWorker(threading.Thread):
             try:
                 text = self.transcribe_once(audio).strip()
             except sr.UnknownValueError:
+                msg = f"未辨識到語音（{speech_seconds:.2f}s），請確認麥克風與音量"
+                update_state(self.state_file, last_error=msg)
                 if self.verbose:
                     print(f"[asr:{self.backend}] empty ({speech_seconds:.2f}s audio)")
                 continue
@@ -521,6 +541,8 @@ class OnlineRecognizerWorker(threading.Thread):
             decode_sec = time.perf_counter() - decode_start
             e2e_sec = time.perf_counter() - queued_at
             if not text:
+                msg = f"未辨識到語音（{speech_seconds:.2f}s），請確認麥克風與音量"
+                update_state(self.state_file, last_error=msg)
                 if self.verbose:
                     print(f"[asr:{self.backend}] empty ({speech_seconds:.2f}s audio)")
                 continue
@@ -663,6 +685,11 @@ def stream_loop(args, state, input_device, capture_rate, worker):
                             except queue.Empty:
                                 break
                         queued = enqueue_blocks(session_blocks)
+                        if session_blocks and not queued:
+                            msg = "錄音片段太短，請多說一點再按停止"
+                            update_state(args.state_file, last_error=msg)
+                            if args.verbose:
+                                print(f"[stream] stop flush: skipped ({msg})")
                         if args.verbose:
                             print(f"[stream] stop flush: {'queued' if queued else 'skipped'}")
                     elif phrase_blocks:
@@ -814,6 +841,11 @@ def main():
     print(f"Input device: {input_device} ({input_name})")
     print(f"Capture rate: {capture_rate}Hz -> model {TARGET_SAMPLE_RATE}Hz")
     print(f"ASR backend: {args.backend}")
+    update_state(
+        args.state_file,
+        input_device=f"{input_device} ({input_name})",
+        capture_rate=capture_rate,
+    )
 
     state = ToggleState()
     cmd_thread = threading.Thread(target=command_loop, args=(args.cmd_fifo, state, args.state_file), daemon=True)

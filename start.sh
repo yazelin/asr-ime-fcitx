@@ -24,20 +24,45 @@ if not profile.exists():
     raise SystemExit(0)
 
 try:
-    text = profile.read_text(encoding="utf-8")
+    lines = profile.read_text(encoding="utf-8").splitlines()
 except Exception:
     raise SystemExit(0)
 
-if re.search(r"(?m)^Name=asrime$", text):
+section_re = re.compile(r"^\[Groups/(\d+)/Items/(\d+)\]$")
+groups = {}
+current_group = None
+
+for raw_line in lines:
+    line = raw_line.strip()
+    m = section_re.match(line)
+    if m:
+        group_id = int(m.group(1))
+        item_id = int(m.group(2))
+        info = groups.setdefault(group_id, {"max_item": -1, "has_asrime": False})
+        info["max_item"] = max(info["max_item"], item_id)
+        current_group = group_id
+        continue
+    if current_group is not None and line == "Name=asrime":
+        groups[current_group]["has_asrime"] = True
+
+if not groups:
     raise SystemExit(0)
 
-indices = [int(m.group(1)) for m in re.finditer(r"(?m)^\[Groups/0/Items/(\d+)\]$", text)]
-next_idx = (max(indices) + 1) if indices else 0
-text = (
-    text.rstrip()
-    + f"\n\n[Groups/0/Items/{next_idx}]\n# Name\nName=asrime\n# Layout\nLayout=\n"
-)
-profile.write_text(text, encoding="utf-8")
+append_blocks = []
+for group_id in sorted(groups):
+    info = groups[group_id]
+    if info["has_asrime"]:
+        continue
+    next_idx = info["max_item"] + 1
+    append_blocks.append(
+        f"\n[Groups/{group_id}/Items/{next_idx}]\n# Name\nName=asrime\n# Layout\nLayout=\n"
+    )
+
+if not append_blocks:
+    raise SystemExit(0)
+
+text = "\n".join(lines).rstrip() + "".join(append_blocks)
+profile.write_text(text + "\n", encoding="utf-8")
 print("added")
 PY
 }
@@ -80,6 +105,14 @@ if mode:
 backend = state.get("backend")
 if backend:
     print(f"backend: {backend}")
+
+input_device = state.get("input_device")
+if input_device:
+    print(f"input_device: {input_device}")
+
+capture_rate = state.get("capture_rate")
+if capture_rate:
+    print(f"capture_rate: {capture_rate}Hz")
 
 postprocess_mode = state.get("postprocess_mode")
 if postprocess_mode:
@@ -201,14 +234,24 @@ if [[ $daemon_stop -eq 1 ]]; then
 fi
 
 if [[ $daemon_status -eq 1 ]]; then
+  current_im="$(fcitx5-remote -n 2>/dev/null || true)"
   if [[ -f "$PID_FILE" ]]; then
     pid="$(cat "$PID_FILE" || true)"
     if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
       echo "ASR daemon running (pid=$pid)"
       echo "log: $LOG_FILE"
+      if [[ -n "$current_im" ]]; then
+        echo "current_im: $current_im"
+        if [[ "$current_im" != "asrime" ]]; then
+          echo "⚠️  hotkey 需在 asrime 輸入法下才會生效"
+        fi
+      fi
       print_runtime_state
       exit 0
     fi
+  fi
+  if [[ -n "$current_im" ]]; then
+    echo "current_im: $current_im"
   fi
   echo "ASR daemon not running."
   exit 1
