@@ -28,16 +28,33 @@ def main():
 
     root = tk.Tk()
     root.title("ASR IME 控制面板")
-    root.geometry("680x520")
-    root.resizable(False, False)
+    scaling = float(root.tk.call("tk", "scaling"))
+    ui_scale = max(1.0, scaling / 1.4)
+    root.geometry(f"{int(760 * ui_scale)}x{int(560 * ui_scale)}")
+    root.minsize(640, 420)
+    root.resizable(True, True)
 
     frame = ttk.Frame(root, padding=14)
     frame.pack(fill="both", expand=True)
+    frame.columnconfigure(0, weight=1)
+    frame.rowconfigure(2, weight=1)
 
-    ttk.Label(frame, text="ASR IME（Fcitx5）", font=("Sans", 13, "bold")).pack(anchor="w")
+    ttk.Label(frame, text="ASR IME（Fcitx5）", font=("Sans", 13, "bold")).grid(row=0, column=0, sticky="w")
 
-    log = tk.Text(frame, height=22, width=88)
-    log.pack(fill="both", expand=True, pady=(10, 10))
+    btn_row = ttk.Frame(frame)
+    btn_row.grid(row=1, column=0, sticky="ew", pady=(10, 8))
+    for i in range(3):
+        btn_row.columnconfigure(i, weight=1)
+
+    log_frame = ttk.Frame(frame)
+    log_frame.grid(row=2, column=0, sticky="nsew")
+    log_frame.columnconfigure(0, weight=1)
+    log_frame.rowconfigure(0, weight=1)
+    log = tk.Text(log_frame, height=1, wrap="word")
+    log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=log.yview)
+    log.configure(yscrollcommand=log_scroll.set)
+    log.grid(row=0, column=0, sticky="nsew")
+    log_scroll.grid(row=0, column=1, sticky="ns")
 
     def append(text):
         if not text:
@@ -73,14 +90,11 @@ def main():
         except Exception as e:
             messagebox.showerror("錯誤", f"開啟設定面板失敗：{e}")
 
-    btn_row = ttk.Frame(frame)
-    btn_row.pack(anchor="w")
-
-    ttk.Button(btn_row, text="啟動", command=do_start).pack(side="left")
-    ttk.Button(btn_row, text="停止", command=do_stop).pack(side="left", padx=(8, 0))
-    ttk.Button(btn_row, text="切換錄音", command=do_toggle).pack(side="left", padx=(8, 0))
-    ttk.Button(btn_row, text="狀態", command=do_status).pack(side="left", padx=(8, 0))
-    ttk.Button(btn_row, text="設定", command=do_settings).pack(side="left", padx=(8, 0))
+    ttk.Button(btn_row, text="啟動", command=do_start).grid(row=0, column=0, sticky="ew")
+    ttk.Button(btn_row, text="停止", command=do_stop).grid(row=0, column=1, sticky="ew", padx=6)
+    ttk.Button(btn_row, text="切換錄音", command=do_toggle).grid(row=0, column=2, sticky="ew")
+    ttk.Button(btn_row, text="狀態", command=do_status).grid(row=1, column=0, sticky="ew", pady=(6, 0))
+    ttk.Button(btn_row, text="設定", command=do_settings).grid(row=1, column=1, sticky="ew", padx=6, pady=(6, 0))
 
     do_status()
     root.mainloop()

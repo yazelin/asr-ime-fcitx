@@ -126,11 +126,32 @@ def main():
 
     root = tk.Tk()
     root.title("ASR IME 設定面板")
-    root.geometry("760x780")
-    root.resizable(False, False)
+    scaling = float(root.tk.call("tk", "scaling"))
+    ui_scale = max(1.0, scaling / 1.4)
+    root.geometry(f"{int(840 * ui_scale)}x{int(760 * ui_scale)}")
+    root.minsize(720, 560)
+    root.resizable(True, True)
 
-    frame = ttk.Frame(root, padding=14)
-    frame.pack(fill="both", expand=True)
+    outer = ttk.Frame(root)
+    outer.pack(fill="both", expand=True)
+    canvas = tk.Canvas(outer, highlightthickness=0)
+    scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+
+    frame = ttk.Frame(canvas, padding=14)
+    canvas_window = canvas.create_window((0, 0), window=frame, anchor="nw")
+
+    def sync_scroll_region(_event=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def sync_frame_width(event):
+        canvas.itemconfigure(canvas_window, width=event.width)
+
+    frame.bind("<Configure>", sync_scroll_region)
+    canvas.bind("<Configure>", sync_frame_width)
+    frame.columnconfigure(1, weight=1)
 
     backend_var = tk.StringVar(value=str(cfg.get("backend", "google")))
     language_var = tk.StringVar(value=str(cfg.get("language", "zh-TW")))
@@ -150,12 +171,12 @@ def main():
     row = 0
     ttk.Label(frame, text="語音辨識後端").grid(row=row, column=0, sticky="w")
     ttk.Combobox(frame, textvariable=backend_var, values=["google", "local"], state="readonly", width=24).grid(
-        row=row, column=1, sticky="w"
+        row=row, column=1, sticky="ew"
     )
     row += 1
 
     ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Checkbutton(
@@ -178,7 +199,7 @@ def main():
         textvariable=local_model_var,
         values=["tiny", "base", "small", "medium", "large-v3"],
         width=24,
-    ).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(frame, text="本機裝置").grid(row=row, column=0, sticky="w", pady=(8, 0))
@@ -188,7 +209,7 @@ def main():
         values=["auto", "cpu", "cuda"],
         state="readonly",
         width=24,
-    ).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(frame, text="本機精度").grid(row=row, column=0, sticky="w", pady=(8, 0))
@@ -198,7 +219,7 @@ def main():
         values=["auto", "int8", "float16"],
         state="readonly",
         width=24,
-    ).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     sep1 = ttk.Separator(frame, orient="horizontal")
@@ -212,7 +233,7 @@ def main():
         values=["none", "heuristic", "command"],
         state="readonly",
         width=24,
-    ).grid(row=row, column=1, sticky="w")
+    ).grid(row=row, column=1, sticky="ew")
     row += 1
 
     ttk.Label(frame, text="標點模型供應商（快速套用）").grid(row=row, column=0, sticky="w", pady=(8, 0))
@@ -223,19 +244,19 @@ def main():
         state="readonly",
         width=24,
     )
-    provider_box.grid(row=row, column=1, sticky="w", pady=(8, 0))
+    provider_box.grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(frame, text="程式（program）").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_program_var, width=40).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=post_program_var, width=40).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(frame, text="參數（args）").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_args_var, width=64).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=post_args_var, width=64).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(frame, text="逾時秒數").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_timeout_var, width=12).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=post_timeout_var, width=12).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
     ttk.Label(
@@ -252,7 +273,7 @@ def main():
     row += 1
 
     hotkey_text = tk.Text(frame, height=8, width=68)
-    hotkey_text.grid(row=row, column=0, columnspan=2, sticky="w")
+    hotkey_text.grid(row=row, column=0, columnspan=2, sticky="ew")
     hotkey_text.insert("1.0", "\n".join(hotkeys))
     row += 1
 
