@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+if [[ ! -w "$ROOT_DIR" ]]; then
+  echo "修復專案目錄權限..."
+  sudo chown -R "$(id -un)":"$(id -gn)" "$ROOT_DIR"
+fi
+
 if [[ "${1:-}" == "--with-apt" ]]; then
   sudo apt-get update
   sudo apt-get install -y \
@@ -13,6 +18,13 @@ if [[ "${1:-}" == "--with-apt" ]]; then
     python3-venv python3-tk libportaudio2 flac
 else
   echo "Tip: 可先執行 ./setup.sh --with-apt 安裝編譯與執行相依"
+fi
+
+if [[ -e ".venv" ]]; then
+  if ! rm -rf .venv 2>/dev/null; then
+    sudo rm -rf .venv
+    sudo chown -R "$(id -un)":"$(id -gn)" "$ROOT_DIR"
+  fi
 fi
 
 python3 -m venv .venv

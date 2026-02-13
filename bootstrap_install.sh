@@ -5,9 +5,20 @@ DEFAULT_REPO_URL="https://github.com/yazelin/asr-ime-fcitx.git"
 REPO_URL="${1:-${ASR_IME_REPO_URL:-$DEFAULT_REPO_URL}}"
 INSTALL_DIR="${2:-$HOME/.local/src/asr-ime-fcitx}"
 
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  echo "請不要用 sudo 執行一鍵安裝；請直接用一般使用者執行。"
+  exit 1
+fi
+
 if ! command -v git >/dev/null 2>&1; then
   sudo apt-get update
   sudo apt-get install -y git
+fi
+
+mkdir -p "$(dirname "$INSTALL_DIR")"
+if [[ -d "$INSTALL_DIR" && ! -w "$INSTALL_DIR" ]]; then
+  echo "修復既有安裝目錄權限..."
+  sudo chown -R "$(id -un)":"$(id -gn)" "$INSTALL_DIR"
 fi
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then

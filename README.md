@@ -18,6 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/yazelin/asr-ime-fcitx/main/bootstra
 ```
 
 > 這是「一鍵安裝」流程：你不用先手動 clone，也不需要一步步輸入安裝指令。
+> 注意：請**不要**在前面加 `sudo`。
 
 安裝會：
 - 建立 Python venv 並安裝 ASR 相依
