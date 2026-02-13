@@ -10,7 +10,7 @@ if [[ "${1:-}" == "--with-apt" ]]; then
     build-essential cmake gettext pkg-config \
     fcitx5 fcitx5-frontend-all \
     libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev fcitx5-modules-dev \
-    python3-venv libportaudio2 flac
+    python3-venv python3-tk libportaudio2 flac
 else
   echo "Tip: 可先執行 ./setup.sh --with-apt 安裝編譯與執行相依"
 fi

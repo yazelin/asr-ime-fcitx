@@ -70,7 +70,7 @@ ls /usr/lib/*/fcitx5/libasrimefcitxnative.so
 - 熱鍵（每行一個）
 - 是否 `process-on-stop`
 - 標點/斷句後處理：`none` / `heuristic` / `command`
-- 模型供應商快速套用：`copilot` / `gemini` / `claude-code`
+- 標點模型供應商（快速套用）：`copilot` / `gemini` / `claude-code`
 - command 模式的 `program + args + timeout`
 - args 可用 `{text}` 代表辨識原文（例如 Copilot GPT-5 mini 預設）
 - 強制繁體輸出（避免簡體）
@@ -97,6 +97,9 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 
 `fcitx5-remote -n` 必須是 `asrime`，按熱鍵時日誌才會出現 `listening ON/OFF`。
 `./start.sh --status` 也會顯示 `listening: ON/OFF`、`mode`、`backend`、`postprocess`、`provider`、最近一次辨識 `last_text`、以及 `last_error`（若有）。
+
+若看到 `org.freedesktop.portal.Error.NotFound`，通常是桌面 portal 設定訊息，**不是致命錯誤**，可先忽略。
+若設定面板打不開，先執行：`sudo apt install -y python3-tk`，再重跑 `./setup.sh --with-apt`。
 
 預設是 `mode: on-stop`（切回 OFF 才做一次辨識，適合背景音大時）。  
 若想改回「停頓即送出」，用 `./start.sh -- --no-process-on-stop`。

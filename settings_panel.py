@@ -215,7 +215,7 @@ def main():
     ).grid(row=row, column=1, sticky="w")
     row += 1
 
-    ttk.Label(frame, text="模型供應商（快速套用）").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Label(frame, text="標點模型供應商（快速套用）").grid(row=row, column=0, sticky="w", pady=(8, 0))
     provider_box = ttk.Combobox(
         frame,
         textvariable=provider_var,

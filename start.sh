@@ -12,6 +12,36 @@ SYSTEM_IM_CONF="/usr/share/fcitx5/inputmethod/asrime.conf"
 SYSTEM_ADDON_CONF="/usr/share/fcitx5/addon/asrimefcitxnative.conf"
 mkdir -p "$CACHE_DIR"
 
+ensure_asrime_in_profile() {
+  local profile="${XDG_CONFIG_HOME:-$HOME/.config}/fcitx5/profile"
+  python3 - "$profile" <<'PY'
+import pathlib
+import re
+import sys
+
+profile = pathlib.Path(sys.argv[1])
+if not profile.exists():
+    raise SystemExit(0)
+
+try:
+    text = profile.read_text(encoding="utf-8")
+except Exception:
+    raise SystemExit(0)
+
+if re.search(r"(?m)^Name=asrime$", text):
+    raise SystemExit(0)
+
+indices = [int(m.group(1)) for m in re.finditer(r"(?m)^\[Groups/0/Items/(\d+)\]$", text)]
+next_idx = (max(indices) + 1) if indices else 0
+text = (
+    text.rstrip()
+    + f"\n\n[Groups/0/Items/{next_idx}]\n# Name\nName=asrime\n# Layout\nLayout=\n"
+)
+profile.write_text(text, encoding="utf-8")
+print("added")
+PY
+}
+
 print_runtime_state() {
   [[ -f "$STATE_FILE" ]] || return 0
   python3 - "$STATE_FILE" <<'PY'
@@ -34,6 +64,10 @@ elif listening is False:
 last_text = state.get("last_text")
 if last_text:
     print(f"last_text: {last_text}")
+
+last_raw_text = state.get("last_raw_text")
+if last_raw_text:
+    print(f"last_raw_text: {last_raw_text}")
 
 last_error = state.get("last_error")
 if last_error:
@@ -60,6 +94,20 @@ if force_traditional is True:
     print("traditional: ON")
 elif force_traditional is False:
     print("traditional: OFF")
+
+pp_sec = state.get("last_postprocess_sec")
+if pp_sec is not None:
+    print(f"postprocess_sec: {pp_sec}")
+
+pp_changed = state.get("last_postprocess_changed")
+if pp_changed is True:
+    print("postprocess_changed: YES")
+elif pp_changed is False:
+    print("postprocess_changed: NO")
+
+pp_error = state.get("last_postprocess_error")
+if pp_error:
+    print(f"postprocess_error: {pp_error}")
 PY
 }
 
@@ -129,6 +177,10 @@ fi
 if [[ $open_settings -eq 1 ]]; then
   if [[ ! -x ".venv/bin/python" ]]; then
     echo "尚未建立虛擬環境，請先執行：./setup.sh --with-apt"
+    exit 1
+  fi
+  if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    echo "目前不是圖形桌面環境，無法開啟設定面板"
     exit 1
   fi
   exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/settings_panel.py"
@@ -233,7 +285,13 @@ if ! fcitx5-remote >/dev/null 2>&1; then
   sleep 1
 fi
 
+profile_added="$(ensure_asrime_in_profile || true)"
+if [[ "$profile_added" == "added" ]]; then
+  echo "已自動把 asrime 加入 Fcitx 目前群組"
+fi
+
 fcitx5-remote -r >/dev/null 2>&1 || true
+fcitx5-remote -o >/dev/null 2>&1 || true
 fcitx5-remote -s asrime >/dev/null 2>&1 || true
 current_im="$(fcitx5-remote -n 2>/dev/null || true)"
 
@@ -241,6 +299,9 @@ echo "請切換到輸入法：ASR Voice Native (Fcitx5)"
 if [[ "$current_im" != "asrime" ]]; then
   echo "⚠️  目前輸入法是：${current_im:-unknown}（不是 ASR）"
   echo "請在 fcitx5-configtool 把 ASR Voice Native (Fcitx5) 加入目前群組"
+  echo "若仍失敗可先執行：fcitx5-remote -o && fcitx5-remote -s asrime"
+else
+  echo "目前輸入法：asrime ✅"
 fi
 echo "熱鍵：Ctrl+Alt+V / Ctrl+Alt+R / F8 / Shift+F8"
 echo "也可用：./start.sh --toggle"
