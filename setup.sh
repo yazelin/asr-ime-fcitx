@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+PYTHON_BIN="python3"
+if [[ -x "/usr/bin/python3" ]]; then
+  PYTHON_BIN="/usr/bin/python3"
+fi
+
 if [[ ! -w "$ROOT_DIR" ]]; then
   echo "修復專案目錄權限..."
   sudo chown -R "$(id -un)":"$(id -gn)" "$ROOT_DIR"
@@ -27,7 +32,7 @@ if [[ -e ".venv" ]]; then
   fi
 fi
 
-python3 -m venv .venv
+"$PYTHON_BIN" -m venv .venv
 "$ROOT_DIR/.venv/bin/python" -m pip install --upgrade pip
 "$ROOT_DIR/.venv/bin/python" -m pip install -r requirements.txt
 
