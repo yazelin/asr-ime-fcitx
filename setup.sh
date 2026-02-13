@@ -16,9 +16,8 @@ else
 fi
 
 python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+"$ROOT_DIR/.venv/bin/python" -m pip install --upgrade pip
+"$ROOT_DIR/.venv/bin/python" -m pip install -r requirements.txt
 
 cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build build -j"$(nproc)"
