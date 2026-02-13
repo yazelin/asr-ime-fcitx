@@ -14,7 +14,7 @@ cd ~/SDD2/asr-ime-fcitx
 ### 另一台電腦快速安裝（先不用手動 clone）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<你的帳號>/<你的repo>/main/bootstrap_install.sh | bash -s -- https://github.com/<你的帳號>/<你的repo>.git
+curl -fsSL https://raw.githubusercontent.com/yazelin/asr-ime-fcitx/main/bootstrap_install.sh | bash -s -- https://github.com/yazelin/asr-ime-fcitx.git
 ```
 
 > 這是「一鍵安裝」流程：你不用先自己 clone，但安裝程式仍會自動抓必要原始碼到本機。
