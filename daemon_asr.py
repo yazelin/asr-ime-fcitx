@@ -220,8 +220,12 @@ def select_best_input_device(preferred_idx=None):
     def score_name(name):
         n = name.lower()
         score = 0
-        if "default" in n:
-            score += 50
+        if "sysdefault" in n:
+            score -= 120
+        if n.strip() == "default":
+            score += 15
+        elif "default" in n:
+            score += 8
         if "pulse" in n:
             score += 40
         if "pipewire" in n:
@@ -231,7 +235,9 @@ def select_best_input_device(preferred_idx=None):
         if "input" in n:
             score += 10
         if "monitor" in n or "stereo mix" in n:
-            score -= 80
+            score -= 120
+        if "dummy" in n or "null" in n:
+            score -= 120
         if "hw:" in n:
             score -= 10
         return score
@@ -826,14 +832,27 @@ def main():
     input_device = requested
     if args.device is None and not args.no_auto_probe_device:
         best, scores = select_best_input_device(requested)
+        names = {idx: name for idx, name in list_input_devices()}
         if args.verbose and scores:
             for idx, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
                 print(f"[probe] device {idx} priority={score}")
-        if best is not None and best != requested and scores.get(best, 0) > scores.get(requested, 0):
+        if best is not None and best != requested:
+            best_score = scores.get(best, 0)
+            requested_score = scores.get(requested, 0)
+            best_name = str(names.get(best, "")).lower()
+            should_switch = best_score >= (requested_score + 20) and "sysdefault" not in best_name
+            if not should_switch and args.verbose:
+                print(
+                    f"[probe] keep requested device {requested} "
+                    f"(best={best}, best_name={names.get(best, '')}, best_score={best_score}, requested_score={requested_score})"
+                )
+        else:
+            should_switch = False
+        if should_switch:
             input_device = best
             print(
-                f"Auto-selected mic: {best} (priority {scores.get(best, 0)}) "
-                f"instead of {requested} (priority {scores.get(requested, 0)})"
+                f"Auto-selected mic: {best} ({names.get(best, 'unknown')}, priority {best_score}) "
+                f"instead of {requested} ({names.get(requested, 'unknown')}, priority {requested_score})"
             )
 
     capture_rate = pick_capture_rate(input_device, args.sample_rate)
