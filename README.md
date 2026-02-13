@@ -14,10 +14,10 @@ cd ~/SDD2/asr-ime-fcitx
 ### 另一台電腦快速安裝（先不用手動 clone）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yazelin/asr-ime-fcitx/main/bootstrap_install.sh | bash -s -- https://github.com/yazelin/asr-ime-fcitx.git
+curl -fsSL https://raw.githubusercontent.com/yazelin/asr-ime-fcitx/main/bootstrap_install.sh | bash
 ```
 
-> 這是「一鍵安裝」流程：你不用先自己 clone，但安裝程式仍會自動抓必要原始碼到本機。
+> 這是「一鍵安裝」流程：你不用先手動 clone，也不需要一步步輸入安裝指令。
 
 安裝會：
 - 建立 Python venv 並安裝 ASR 相依
