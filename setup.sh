@@ -41,7 +41,7 @@ rm -f \
   "$HOME/.local/share/fcitx5/inputmethod/asr-ime-fcitx-online.conf" \
   "$HOME/.local/share/fcitx5/addon/asrimefcitxnative.conf"
 
-chmod +x start.sh run_engine.sh daemon_asr.py settings_panel.py asr_ime_app.py bootstrap_install.sh
+chmod +x start.sh run_engine.sh daemon_asr.py settings_panel.py asr_ime_app.py launch_app.sh bootstrap_install.sh
 
 mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/asr-ime-fcitx.desktop" <<EOF
@@ -50,7 +50,7 @@ Type=Application
 Version=1.0
 Name=ASR IME 控制面板
 Comment=開啟 ASR IME 設定與控制
-Exec=$ROOT_DIR/.venv/bin/python $ROOT_DIR/asr_ime_app.py
+Exec=$ROOT_DIR/launch_app.sh
 Icon=audio-input-microphone
 Terminal=false
 Categories=Utility;AudioVideo;

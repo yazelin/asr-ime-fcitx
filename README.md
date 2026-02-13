@@ -101,6 +101,7 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 
 若看到 `org.freedesktop.portal.Error.NotFound`，通常是桌面 portal 設定訊息，**不是致命錯誤**，可先忽略。
 若設定面板打不開，先執行：`sudo apt install -y python3-tk`，再重跑 `./setup.sh --with-apt`。
+若點應用程式圖示沒反應，請看：`tail -n 80 ~/.cache/asr-ime-fcitx/gui.log`。
 
 預設是 `mode: on-stop`（切回 OFF 才做一次辨識，適合背景音大時）。  
 若想改回「停頓即送出」，用 `./start.sh -- --no-process-on-stop`。

@@ -65,7 +65,13 @@ def main():
         if not py_bin.exists():
             messagebox.showerror("錯誤", "找不到虛擬環境 Python，請先執行 ./setup.sh --with-apt")
             return
-        subprocess.Popen([str(py_bin), str(settings_py)], cwd=root_dir)
+        if not settings_py.exists():
+            messagebox.showerror("錯誤", f"找不到設定面板：{settings_py}")
+            return
+        try:
+            subprocess.Popen([str(py_bin), str(settings_py)], cwd=root_dir)
+        except Exception as e:
+            messagebox.showerror("錯誤", f"開啟設定面板失敗：{e}")
 
     btn_row = ttk.Frame(frame)
     btn_row.pack(anchor="w")
