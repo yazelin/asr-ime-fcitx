@@ -117,8 +117,11 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 Notes on Settings Panel additions:
 - 新增選項 `postprocess: smart`：啟用 Smart Edit 層，會在常規標點/斷句之外嘗試移除無意義填充詞（例如「嗯、啊」）並做小幅自動更正。
 - 新增兩個勾選：`enable_filler_filter`（預設 ON）與 `enable_self_correction`（預設 ON），可分別關閉填充詞過濾或自動更正功能。
+- 新增選項 `enable_context_memory`（預設 OFF）：啟用後會在後處理時保留先前辨識結果作為上下文，提升長對話或多句連貫性的後處理品質。
+- 新增選項 `context_length`（預設 5）：設定保留的最近辨識片段數量（句/段），數值越大會提供更長的上下文但可能增加處理量。
 - 若在設定面板勾選「儲存後自動套用」，會在儲存後執行：`fcitx5-remote -r` 並重啟 daemon（`./start.sh --stop && ./start.sh`）以套用變更。
 
+使用範例：在設定面板勾選「啟用上下文記憶」，並將「上下文長度」設為 10，儲存後（若選擇自動套用）系統會重啟 daemon；之後後處理會帶入最近 10 筆辨識結果以改善回覆的連貫性與上下文理解。
 Smart Edit 範例：
 - 原始："嗯 我今天 去 超市 買 了 蘋果 然後 回家"
   Smart Edit："我今天去超市買了蘋果，然後回家。"

@@ -427,25 +427,42 @@ def heuristic_punctuate(text):
     return t
 
 
-def run_postprocess_command(text, program, args, timeout_sec):
+def run_postprocess_command(text, program, args, timeout_sec, context_text=""):
+    """Run an external postprocess command with optional context.
+
+    If the command arguments contain the placeholder {text}, it will be replaced
+    with a context-aware combined text (context + current text). Otherwise the
+    combined text will be sent via stdin (prepended with context when present).
+
+    Returns a tuple: (output_text, error_message). On error, the original text
+    and an error description are returned.
+    """
     if not program:
         return text, ""
     cmd = [program]
     uses_placeholder = False
+    # Build combined text including context when available
+    try:
+        combined_text = (context_text + "\n" + text) if context_text else text
+    except Exception:
+        combined_text = text
+
     if args:
         parts = shlex.split(args)
         cmd_args = []
         for p in parts:
             if "{text}" in p:
                 uses_placeholder = True
-                cmd_args.append(p.replace("{text}", text))
+                # replace placeholder with the context-aware combined text
+                cmd_args.append(p.replace("{text}", combined_text))
             else:
                 cmd_args.append(p)
         cmd.extend(cmd_args)
     try:
+        input_text = "" if uses_placeholder else combined_text
         proc = subprocess.run(
             cmd,
-            input=("" if uses_placeholder else text),
+            input=input_text,
             text=True,
             capture_output=True,
             timeout=max(1.0, float(timeout_sec)),
@@ -635,18 +652,22 @@ class OnlineRecognizerWorker(threading.Thread):
             except Exception:
                 pass
             if self.postprocess_program:
+                context_text = self.get_context_text() if getattr(self, 'enable_context_memory', False) else ""
                 return run_postprocess_command(
                     text,
                     self.postprocess_program,
                     self.postprocess_args,
                     self.postprocess_timeout_sec,
+                    context_text,
                 )
             return text, ""
+        context_text = self.get_context_text() if getattr(self, 'enable_context_memory', False) else ""
         return run_postprocess_command(
             text,
             self.postprocess_program,
             self.postprocess_args,
             self.postprocess_timeout_sec,
+            context_text,
         )
 
     def normalize_text(self, text):
