@@ -130,6 +130,16 @@ Smart Edit 範例：
 
 （範例示意 Smart Edit 如何移除填充詞並補上標點與小幅修正語句。）
 
+### 語調與多語言（Tone & Language）
+
+- 語調（tone）：設定面板允許選擇語調（casual / formal / professional / creative），系統會在需要以自然語氣改寫或補標點時，嘗試使用所選語調作為輸出的風格參考。以下為說明與示例：
+  - casual：使用口語、自然且親切的語氣。範例："我今天去超市，買了蘋果。"
+  - formal：使用正式、書面的語氣，適合公文或正式書寫。範例："我今天前往超市採買蘋果。"
+  - professional：使用專業、精簡的語氣，適合報告或工作場合。範例："該項任務已完成。"
+  - creative：較有創意或活潑的表達，可適度延展語句。範例："陽光正好，今天適合外出散步！"
+
+- 多語言切換（hotkey）：設定面板提示熱鍵為 Ctrl+Alt+L，可用來在候選語言清單中循環切換（例如：zh-TW → en-US → ja-JP → zh-TW）。
+
 ## Backend: vosk
 
 - `backend: vosk`: 使用 Vosk 本機辨識引擎；可在設定面板指定模型路徑 (`vosk_model_path`)。若未提供模型，daemon 會嘗試協助取得或提示使用者下載適當模型到該路徑。
