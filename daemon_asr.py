@@ -273,6 +273,17 @@ def apply_config(args, cfg):
     if args.postprocess_mode not in {"none", "heuristic", "command", "smart"}:
         args.postprocess_mode = "heuristic"
 
+    # Context memory config
+    if getattr(args, 'enable_context_memory', None) is None:
+        args.enable_context_memory = to_bool(cfg.get("enable_context_memory", False), False)
+    if getattr(args, 'context_length', None) is None:
+        try:
+            cl = int(cfg.get("context_length", 5))
+        except Exception:
+            cl = 5
+        # enforce sensible bounds
+        args.context_length = max(1, min(10, cl))
+
 def ensure_fifo(path):
     if os.path.exists(path):
         if os.path.isfile(path):
@@ -527,6 +538,8 @@ class OnlineRecognizerWorker(threading.Thread):
         postprocess_args,
         postprocess_timeout_sec,
         force_traditional,
+        enable_context_memory=False,
+        context_length=5,
     ):
         super().__init__(daemon=True)
         self.backend = backend
@@ -552,6 +565,20 @@ class OnlineRecognizerWorker(threading.Thread):
             self.converter = OpenCC("s2twp")
         elif self.force_traditional and OpenCC is None:
             print("[warn] 未安裝 OpenCC，暫時無法強制繁體")
+
+        # Context memory settings
+        try:
+            self.enable_context_memory: bool = bool(enable_context_memory)
+        except Exception:
+            self.enable_context_memory = False
+        try:
+            self.context_length: int = max(1, int(context_length))
+        except Exception:
+            self.context_length = 5
+        try:
+            self.context_queue = deque(maxlen=self.context_length)
+        except Exception:
+            self.context_queue = deque(maxlen=5)
 
         if self.backend == "local":
             if WhisperModel is None:
@@ -678,6 +705,40 @@ class OnlineRecognizerWorker(threading.Thread):
         except Exception:
             return text
 
+    def add_to_context(self, text: str) -> None:
+        """Append a recognized text item to the context queue with a timestamp.
+
+        The item stored is a dict with keys: 'text' and 'time'. Exceptions are
+        caught and ignored to avoid interfering with recognition flow.
+        """
+        if not getattr(self, "enable_context_memory", False):
+            return
+        try:
+            item = {"text": str(text), "time": time.time()}
+            self.context_queue.append(item)
+        except Exception:
+            # Swallow context errors to avoid breaking main flow
+            return
+
+    def get_context_text(self) -> str:
+        """Return formatted context text suitable for prepending to prompts.
+
+        Each entry is formatted as '- text' joined by newlines. Returns empty
+        string when there is no context.
+        """
+        if not getattr(self, "enable_context_memory", False):
+            return ""
+        try:
+            parts = []
+            for it in list(self.context_queue):
+                t = it.get("text") if isinstance(it, dict) else str(it)
+                t = (t or "").strip()
+                if t:
+                    parts.append(f"- {t}")
+            return "\n".join(parts) if parts else ""
+        except Exception:
+            return ""
+
     def run(self):
         while not self.stop_event.is_set() or not self.jobs.empty():
             try:
@@ -743,6 +804,11 @@ class OnlineRecognizerWorker(threading.Thread):
                 last_postprocess_sec=round(pp_sec, 3),
                 last_postprocess_changed=pp_changed,
             )
+            # Add recognized text to context memory when enabled
+            try:
+                self.add_to_context(text)
+            except Exception:
+                pass
             notify("ASR 辨識結果", text[:80] + ("…" if len(text) > 80 else ""))
             print(
                 f"[asr:{self.backend}] {text}  "
@@ -942,6 +1008,8 @@ def parse_args():
     parser.add_argument("--postprocess-args", default=None, help="postprocess 參數（command 模式）")
     parser.add_argument("--postprocess-timeout-sec", type=float, default=None)
     parser.add_argument("--sample-rate", type=int, default=TARGET_SAMPLE_RATE)
+    parser.add_argument("--enable-context-memory", action="store_true", default=None)
+    parser.add_argument("--context-length", type=int, default=None)
     parser.add_argument("--speech-threshold", type=float, default=0.005)
     parser.add_argument("--silence-sec", type=float, default=0.35)
     parser.add_argument("--min-speech-sec", type=float, default=0.15)
@@ -1046,6 +1114,8 @@ def main():
             postprocess_args=args.postprocess_args,
             postprocess_timeout_sec=args.postprocess_timeout_sec,
             force_traditional=args.force_traditional,
+            enable_context_memory=args.enable_context_memory,
+            context_length=args.context_length,
         )
     except Exception as e:
         msg = f"辨識器初始化失敗：{e}"
