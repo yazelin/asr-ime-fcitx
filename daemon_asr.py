@@ -71,6 +71,31 @@ ENGLISH_FILLERS = [
     "actually",
 ]
 
+# Tone adjustment prompts for different tones. These are small instruction
+# snippets injected into postprocess prompts to steer output style.
+TONE_PROMPTS = {
+    "casual": "請以輕鬆自然的語氣回應：",
+    "formal": "請以正式且禮貌的語氣回應：",
+    "professional": "請以專業且精準的語氣回應：",
+    "creative": "請以創意且生動的語氣回應：",
+}
+
+# Language specific configurations (filler words and backend language codes)
+LANGUAGE_CONFIGS = {
+    "zh-TW": {
+        "filler_words": CHINESE_FILLERS,
+        "backend_language": "zh-TW",
+    },
+    "en-US": {
+        "filler_words": ENGLISH_FILLERS,
+        "backend_language": "en-US",
+    },
+    "ja-JP": {
+        "filler_words": ["えーと", "あの", "まあ", "その", "えっと"],
+        "backend_language": "ja-JP",
+    },
+}
+
 # Compile patterns once for performance
 _CHINESE_FILLER_RE = re.compile(r"(?:" + "|".join(re.escape(w) for w in CHINESE_FILLERS) + r")")
 # English fillers use word boundaries and case-insensitive matching
@@ -89,20 +114,29 @@ _SHOULD_BE_PATTERN = re.compile(r"(?:應該是|更正)[：:\s,，]*?(?P<X>.+)$")
 _WRONG_PATTERN = re.compile(r"不對[：:\s,，]*?(?P<X>.+)$")
 
 
-def filter_filler_words(text: str) -> str:
-    """Remove common Chinese and English filler words from text.
+def filter_filler_words(text: str, language: Optional[str] = None) -> str:
+    """Remove filler words from text using language-specific lists.
 
-    Chinese fillers are matched literally; English fillers use word boundaries
-    with case-insensitive matching. The function preserves the original case
-    of non-filler words, collapses multiple spaces, and removes space before
-    punctuation. On regex errors, the original text is returned unchanged.
+    If language is None, falls back to the legacy behaviour that removes a
+    combination of Chinese and English filler words. For 'en-US' matching is
+    performed case-insensitively with word boundaries. Returns the cleaned
+    string, or the original text on regex errors.
     """
     try:
         s = str(text)
-        # Remove Chinese fillers first
-        s = _CHINESE_FILLER_RE.sub("", s)
-        # Remove English fillers using word-boundary pattern (case-insensitive)
-        s = _ENGLISH_FILLER_RE.sub("", s)
+        if language and language in LANGUAGE_CONFIGS:
+            fillers = LANGUAGE_CONFIGS[language].get("filler_words", [])
+            if not fillers:
+                return s
+            if language == "en-US":
+                pattern = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in fillers) + r")\b", flags=re.IGNORECASE)
+            else:
+                pattern = re.compile(r"(?:" + "|".join(re.escape(w) for w in fillers) + r")")
+            s = pattern.sub("", s)
+        else:
+            # Legacy combined behaviour
+            s = _CHINESE_FILLER_RE.sub("", s)
+            s = _ENGLISH_FILLER_RE.sub("", s)
         # Collapse multiple spaces and trim
         s = re.sub(r"\s+", " ", s)
         # Remove space before common punctuation
@@ -544,6 +578,26 @@ def heuristic_punctuate(text):
     return t
 
 
+def build_tone_aware_prompt(base_prompt: str, tone: str) -> str:
+    """Return a modified prompt that injects a tone instruction.
+
+    The function looks for the placeholder "{text}" in base_prompt and
+    injects a short tone instruction before the placeholder so downstream
+    postprocess programs receive a tone-guided prompt. If the tone is unknown
+    the base_prompt is returned unchanged.
+    """
+    try:
+        instr = TONE_PROMPTS.get(tone, "")
+        if not instr:
+            return base_prompt
+        if "{text}" in base_prompt:
+            return base_prompt.replace("{text}", instr + "{text}")
+        # If no placeholder is present, prepend the instruction to the prompt
+        return instr + base_prompt
+    except Exception:
+        return base_prompt
+
+
 def run_postprocess_command(text, program, args, timeout_sec, context_text=""):
     """Run an external postprocess command with optional context.
 
@@ -596,6 +650,46 @@ def run_postprocess_command(text, program, args, timeout_sec, context_text=""):
 
     out = (proc.stdout or "").strip()
     return (out if out else text), ""
+
+
+def get_next_language(current: str) -> str:
+    """Return the next language code in rotation.
+
+    Cycles through the supported languages in LANGUAGE_CONFIGS. Falls back to
+    'zh-TW' for unknown or missing current values.
+    """
+    try:
+        order = list(LANGUAGE_CONFIGS.keys())
+        if not order:
+            return "zh-TW"
+        if not current or current not in order:
+            return order[0]
+        idx = order.index(current)
+        return order[(idx + 1) % len(order)]
+    except Exception:
+        return "zh-TW"
+
+
+def load_current_language(state_file: str) -> str:
+    """Load the current language value from a state file.
+
+    Returns the language code string (e.g. 'zh-TW'). Falls back to DEFAULT_CONFIG
+    or 'zh-TW' if the state file is missing or invalid.
+    """
+    try:
+        if os.path.exists(state_file):
+            with open(state_file, "r", encoding="utf-8") as f:
+                st = json.load(f)
+                lang = st.get("language") or st.get("current_language") or st.get("current")
+                if isinstance(lang, str) and lang:
+                    return lang
+    except Exception:
+        pass
+    # Fallbacks
+    try:
+        return DEFAULT_CONFIG.get("language", "zh-TW")
+    except Exception:
+        return "zh-TW"
 
 
 class ToggleState:
@@ -656,7 +750,22 @@ class OnlineRecognizerWorker(threading.Thread):
         self.stop_event = threading.Event()
         self.recognizer = sr.Recognizer()
         self.state_file = state_file
+        # default tone and per-instance language filler regex
+        self.tone = "casual"
         self.local_language = (language or "zh").split("-")[0]
+        # compile instance filler regex based on initial language
+        try:
+            lang_conf = LANGUAGE_CONFIGS.get(language or "zh-TW", {})
+            fillers = lang_conf.get("filler_words", [])
+            if fillers:
+                if (language or "").startswith("en"):
+                    self._LANGUAGE_FILLER_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in fillers) + r")\b", flags=re.IGNORECASE)
+                else:
+                    self._LANGUAGE_FILLER_RE = re.compile(r"(?:" + "|".join(re.escape(w) for w in fillers) + r")")
+            else:
+                self._LANGUAGE_FILLER_RE = None
+        except Exception:
+            self._LANGUAGE_FILLER_RE = None
         self.local_model_name = local_model
         self.local_device = local_device
         self.local_compute_type = local_compute_type
@@ -786,19 +895,31 @@ class OnlineRecognizerWorker(threading.Thread):
                 pass
             if self.postprocess_program:
                 context_text = self.get_context_text() if getattr(self, 'enable_context_memory', False) else ""
+                args_local = self.postprocess_args
+                try:
+                    if args_local and "{text}" in args_local and getattr(self, "tone", None):
+                        args_local = build_tone_aware_prompt(args_local, self.tone)
+                except Exception:
+                    pass
                 return run_postprocess_command(
                     text,
                     self.postprocess_program,
-                    self.postprocess_args,
+                    args_local,
                     self.postprocess_timeout_sec,
                     context_text,
                 )
             return text, ""
         context_text = self.get_context_text() if getattr(self, 'enable_context_memory', False) else ""
+        args_local = self.postprocess_args
+        try:
+            if args_local and "{text}" in args_local and getattr(self, "tone", None):
+                args_local = build_tone_aware_prompt(args_local, self.tone)
+        except Exception:
+            pass
         return run_postprocess_command(
             text,
             self.postprocess_program,
-            self.postprocess_args,
+            args_local,
             self.postprocess_timeout_sec,
             context_text,
         )
@@ -844,6 +965,38 @@ class OnlineRecognizerWorker(threading.Thread):
             return "\n".join(parts) if parts else ""
         except Exception:
             return ""
+
+    def switch_language(self, new_language: str) -> None:
+        """Switch worker language and update related settings.
+
+        Updates self.language, self.local_language, compiles a language-specific
+        filler-word regex on the instance for later use, and writes the new
+        language to the STATE_FILE via update_state. Falls back to 'zh-TW' for
+        unsupported languages.
+        """
+        try:
+            lang = new_language if isinstance(new_language, str) else str(new_language or "")
+            if lang not in LANGUAGE_CONFIGS:
+                lang = "zh-TW"
+            self.language = lang
+            self.local_language = (lang or "zh-TW").split("-")[0]
+            # compile per-instance filler regex
+            fillers = LANGUAGE_CONFIGS.get(lang, {}).get("filler_words", [])
+            try:
+                if lang == "en-US":
+                    self._LANGUAGE_FILLER_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in fillers) + r")\b", flags=re.IGNORECASE)
+                else:
+                    self._LANGUAGE_FILLER_RE = re.compile(r"(?:" + "|".join(re.escape(w) for w in fillers) + r")")
+            except Exception:
+                self._LANGUAGE_FILLER_RE = None
+            # persist state if possible
+            try:
+                update_state(self.state_file, language=self.language)
+            except Exception:
+                pass
+            notify("語言已切換", f"當前語言：{self.language}")
+        except Exception:
+            return
 
     def run(self):
         while not self.stop_event.is_set() or not self.jobs.empty():
@@ -947,6 +1100,21 @@ def command_loop(cmd_fifo, state, state_file):
                         state.stop()
                         update_state(state_file, listening=False)
                         return
+                    elif cmd == "switch_language":
+                        try:
+                            cur = load_current_language(state_file)
+                        except Exception:
+                            cur = None
+                        try:
+                            nxt = get_next_language(cur)
+                            # persist language
+                            update_state(state_file, language=nxt)
+                            print(f"language switched to {nxt}")
+                            notify("語言切換", f"已切換至 {nxt}")
+                        except Exception as e:
+                            print(f"[warn] failed to switch language: {e}")
+                            notify("語言切換失敗", str(e))
+                        
         except FileNotFoundError:
             time.sleep(0.2)
         except Exception as e:
