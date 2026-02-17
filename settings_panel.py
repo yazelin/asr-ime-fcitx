@@ -29,6 +29,8 @@ DEFAULT_CONFIG = {
     "postprocess_program": "copilot",
     "postprocess_args": '-s --model gpt-5-mini -p "請將以下語音辨識結果改寫為繁體中文，補上自然標點、斷句與段落；不要新增內容，只回傳結果：{text}" --allow-all',
     "postprocess_timeout_sec": 12,
+    "enable_filler_filter": True,
+    "enable_self_correction": True,
     "auto_apply_on_save": True,
 }
 
@@ -168,6 +170,8 @@ def main():
     post_program_var = tk.StringVar(value=str(cfg.get("postprocess_program", "")))
     post_args_var = tk.StringVar(value=str(cfg.get("postprocess_args", "")))
     post_timeout_var = tk.StringVar(value=str(cfg.get("postprocess_timeout_sec", 12)))
+    enable_filler_filter_var = tk.BooleanVar(value=to_bool(cfg.get("enable_filler_filter", True), True))
+    enable_self_correction_var = tk.BooleanVar(value=to_bool(cfg.get("enable_self_correction", True), True))
     auto_apply_var = tk.BooleanVar(value=to_bool(cfg.get("auto_apply_on_save", True), True))
 
     row = 0
@@ -237,7 +241,7 @@ def main():
     ttk.Combobox(
         frame,
         textvariable=post_mode_var,
-        values=["none", "heuristic", "command"],
+        values=["none", "heuristic", "smart", "command"],
         state="readonly",
         width=24,
     ).grid(row=row, column=1, sticky="ew")
@@ -270,6 +274,21 @@ def main():
         frame,
         text="command 模式會把辨識文字送到 stdin；若 args 含 {text} 會直接代入。",
     ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    row += 1
+
+    # Smart edit related toggles
+    ttk.Checkbutton(
+        frame,
+        text="啟用填充詞過濾（移除「啊、嗯」等無意義詞）",
+        variable=enable_filler_filter_var,
+    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    row += 1
+
+    ttk.Checkbutton(
+        frame,
+        text="啟用自動更正（小幅修正錯字/語句以保持語意）",
+        variable=enable_self_correction_var,
+    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 0))
     row += 1
 
     sep2 = ttk.Separator(frame, orient="horizontal")
@@ -363,6 +382,8 @@ def main():
             "postprocess_program": post_program_var.get().strip(),
             "postprocess_args": post_args_var.get().strip(),
             "postprocess_timeout_sec": timeout_value,
+            "enable_filler_filter": bool(enable_filler_filter_var.get()),
+            "enable_self_correction": bool(enable_self_correction_var.get()),
             "auto_apply_on_save": bool(auto_apply_var.get()),
         }
 
