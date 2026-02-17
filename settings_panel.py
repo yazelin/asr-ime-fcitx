@@ -21,6 +21,7 @@ HOTKEY_FILE = CONFIG_DIR / "hotkeys.conf"
 DEFAULT_CONFIG = {
     "backend": "google",
     "language": "zh-TW",
+    "tone": "casual",
     "input_device": "auto",
     "force_traditional": True,
     "process_on_stop": True,
@@ -165,6 +166,7 @@ def main():
     frame.columnconfigure(1, weight=1)
 
     backend_var = tk.StringVar(value=str(cfg.get("backend", "google")))
+    tone_var = tk.StringVar(value=str(cfg.get("tone", "casual")))
     language_var = tk.StringVar(value=str(cfg.get("language", "zh-TW")))
     input_device_var = tk.StringVar(value=str(cfg.get("input_device", "auto")))
     force_traditional_var = tk.BooleanVar(value=to_bool(cfg.get("force_traditional", True), True))
@@ -226,8 +228,13 @@ def main():
         pass
     update_backend_ui()
 
+    ttk.Label(frame, text="語調").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Combobox(frame, textvariable=tone_var, values=["casual","formal","professional","creative"], state="readonly", width=24).grid(row=row, column=1, sticky="ew", pady=(8, 0))
+    row += 1
+
     ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="ew", pady=(8, 0))
+    ttk.Combobox(frame, textvariable=language_var, values=["zh-TW","en-US","ja-JP"], state="readonly", width=24).grid(row=row, column=1, sticky="ew", pady=(8, 0))
+    tk.Label(frame, text="Ctrl+Alt+L", fg="gray").grid(row=row, column=2, sticky="w", padx=(8,0), pady=(8,0))
     row += 1
 
     input_device_row = row
@@ -426,6 +433,7 @@ def main():
 
         new_cfg = {
             "backend": backend_var.get().strip() or "google",
+            "tone": tone_var.get().strip() or "casual",
             "language": language,
             "input_device": input_device_var.get().strip() or "auto",
             "force_traditional": bool(force_traditional_var.get()),
