@@ -7,8 +7,11 @@ from pathlib import Path
 try:
     import tkinter as tk
     from tkinter import messagebox, ttk
-except Exception as e:
-    raise SystemExit("缺少 tkinter，請先安裝：sudo apt install -y python3-tk") from e
+except Exception:
+    # Allow importing module in non-GUI test environments; GUI functions are only used in main().
+    tk = None
+    messagebox = None
+    ttk = None
 
 CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
 CONFIG_DIR = Path(CONFIG_HOME) / "asr-ime-fcitx"
@@ -293,6 +296,16 @@ def main():
 
     sep2 = ttk.Separator(frame, orient="horizontal")
     sep2.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
+    row += 1
+
+    # Smart edit options
+    ttk.Checkbutton(frame, text="啟用智慧編輯：過濾填詞（嗯/啊/um/uh）", variable=filler_filter_var).grid(
+        row=row, column=0, columnspan=2, sticky="w", pady=(8, 0)
+    )
+    row += 1
+    ttk.Checkbutton(frame, text="啟用智慧編輯：偵測並套用更正（不是A而是B）", variable=self_correction_var).grid(
+        row=row, column=0, columnspan=2, sticky="w", pady=(8, 0)
+    )
     row += 1
 
     ttk.Label(frame, text="熱鍵（每行一個，Fcitx Key 格式）").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 4))
