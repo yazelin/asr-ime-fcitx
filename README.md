@@ -111,5 +111,18 @@ tail -f ~/.cache/asr-ime-fcitx/daemon.log
 
 - `backend: google`：走 Google Web Speech（免費但非官方 SLA，需網路）。  
 - `backend: local`：走 `faster-whisper` 本機辨識（第一次會下載模型）。
-- `postprocess: heuristic` 會嘗試自動補常見中文標點；`command` 可接你指定的大語言模型 CLI。
+- `postprocess: heuristic` 會嘗試自動補常見中文標點；`smart` 會啟用 Smart Edit 層，嘗試移除填充詞、做小幅自動更正，並補上標點與斷句；`command` 可接你指定的大語言模型 CLI。
 - 預設已改為 `copilot + gpt-5-mini` 的 command 後處理（會補標點、斷句、段落並維持繁體）。
+
+Notes on Settings Panel additions:
+- 新增選項 `postprocess: smart`：啟用 Smart Edit 層，會在常規標點/斷句之外嘗試移除無意義填充詞（例如「嗯、啊」）並做小幅自動更正。
+- 新增兩個勾選：`enable_filler_filter`（預設 ON）與 `enable_self_correction`（預設 ON），可分別關閉填充詞過濾或自動更正功能。
+- 若在設定面板勾選「儲存後自動套用」，會在儲存後執行：`fcitx5-remote -r` 並重啟 daemon（`./start.sh --stop && ./start.sh`）以套用變更。
+
+Smart Edit 範例：
+- 原始："嗯 我今天 去 超市 買 了 蘋果 然後 回家"
+  Smart Edit："我今天去超市買了蘋果，然後回家。"
+- 原始："今天 天氣 不錯 啊 我 想 去 公園 散步"
+  Smart Edit："今天天氣不錯，我想去公園散步。"
+
+（範例示意 Smart Edit 如何移除填充詞並補上標點與小幅修正語句。）

@@ -41,6 +41,110 @@ try:
 except ModuleNotFoundError:
     OpenCC = None
 
+# Compiled regexes used by smart edit functions for efficiency
+# Chinese filler words are matched literally; we avoid word-boundary anchors
+# because \b semantics vary with Unicode. We match the token occurrences and
+# then collapse extra spaces. English fillers use \b and IGNORECASE to avoid
+# removing substrings within words.
+
+CHINESE_FILLERS = [
+    "嗯",
+    "啊",
+    "那個",
+    "這個",
+    "就是",
+    "然後",
+    "對啊",
+    "其實",
+    "說實在",
+    "呃",
+    "欸",
+]
+ENGLISH_FILLERS = [
+    "um",
+    "uh",
+    "like",
+    "you know",
+    "well",
+    "so",
+    "actually",
+]
+
+# Compile patterns once for performance
+_CHINESE_FILLER_RE = re.compile(r"(?:" + "|".join(re.escape(w) for w in CHINESE_FILLERS) + r")")
+# English fillers use word boundaries and case-insensitive matching
+_ENGLISH_FILLER_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in ENGLISH_FILLERS) + r")\b", flags=re.IGNORECASE)
+
+# Self-correction patterns (try conservative matches in order)
+# 1) "不是 A 而是 B" or "不是 A 是 B" -> keep prefix + B
+# 2) "我是說 X", "我說 X" -> keep X
+# 3) "應該是 X", "更正 X", "不對 X" -> keep X
+
+# Match "不是 A 而是 B" capturing optional prefix before '不是'
+_NOT_PATTERN = re.compile(r"(?P<prefix>.*?)不是\s*(?P<A>[^而是,，。.?!？]+?)\s*(?:而是|是)\s*(?P<B>.+)$")
+# Simple correction markers capturing the corrected text
+_I_MEANT_PATTERN = re.compile(r"(?:我是說|我說)\s*(?P<X>.+)$")
+_SHOULD_BE_PATTERN = re.compile(r"(?:應該是|更正)[：:\s,，]*?(?P<X>.+)$")
+_WRONG_PATTERN = re.compile(r"不對[：:\s,，]*?(?P<X>.+)$")
+
+
+def filter_filler_words(text: str) -> str:
+    """Remove common Chinese and English filler words from text.
+
+    Chinese fillers are matched literally; English fillers use word boundaries
+    with case-insensitive matching. The function preserves the original case
+    of non-filler words, collapses multiple spaces, and removes space before
+    punctuation. On regex errors, the original text is returned unchanged.
+    """
+    try:
+        s = str(text)
+        # Remove Chinese fillers first
+        s = _CHINESE_FILLER_RE.sub("", s)
+        # Remove English fillers using word-boundary pattern (case-insensitive)
+        s = _ENGLISH_FILLER_RE.sub("", s)
+        # Collapse multiple spaces and trim
+        s = re.sub(r"\s+", " ", s)
+        # Remove space before common punctuation
+        s = re.sub(r"\s+([,\.，。!?！？:：;；])", r"\1", s)
+        return s.strip()
+    except re.error:
+        return text
+
+
+def detect_self_correction(text: str) -> str:
+    """Detect and apply conservative self-corrections in text.
+
+    Tries several patterns in order:
+    - "不是 A 而是 B" / "不是 A 是 B" -> keep prefix + B (i.e., the corrected part)
+    - "我是說 X" / "我說 X" -> keep X
+    - "應該是 X", "更正 X", "不對 X" -> keep X
+
+    The function avoids aggressive deletions by using conservative regexes and
+    returning the input unchanged if no pattern matches.
+    """
+    try:
+        t = str(text).strip()
+        # Pattern: prefix 不是 A (而是|是) B -> return prefix + B
+        m = _NOT_PATTERN.search(t)
+        if m:
+            prefix = (m.group("prefix") or "").strip()
+            b = (m.group("B") or "").strip()
+            if prefix:
+                return (prefix + b).strip()
+            return b
+
+        # Other correction markers: keep the corrected fragment
+        for pat in (_I_MEANT_PATTERN, _SHOULD_BE_PATTERN, _WRONG_PATTERN):
+            m2 = pat.search(t)
+            if m2:
+                x = (m2.group("X") or "").strip()
+                return x
+
+        return t
+    except re.error:
+        return text
+
+
 TARGET_SAMPLE_RATE = 16000
 STATE_FILE = "/tmp/fcitx-asr-ime-state.json"
 CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
@@ -63,6 +167,9 @@ DEFAULT_CONFIG = {
     "postprocess_program": "copilot",
     "postprocess_args": '-s --model gpt-5-mini -p "請快速處理以下語音辨識結果：轉成繁體中文、補上自然標點與斷句、整理成短段落；不要新增內容，不要解釋，只回傳結果：{text}" --allow-all',
     "postprocess_timeout_sec": 12,
+    # Smart edit options
+    "enable_filler_filter": True,
+    "enable_self_correction": True,
 }
 
 
@@ -163,7 +270,7 @@ def apply_config(args, cfg):
 
     if args.backend not in {"google", "local"}:
         args.backend = "google"
-    if args.postprocess_mode not in {"none", "heuristic", "command"}:
+    if args.postprocess_mode not in {"none", "heuristic", "command", "smart"}:
         args.postprocess_mode = "heuristic"
 
 def ensure_fifo(path):
@@ -499,10 +606,42 @@ class OnlineRecognizerWorker(threading.Thread):
         return self.recognizer.recognize_google(audio_data, language=self.language)
 
     def postprocess_text(self, text):
+        """Postprocess text according to selected mode.
+
+        Supports existing modes: none, heuristic, command, and a new 'smart'
+        mode which applies filler filtering and self-correction before either
+        running an external command (if configured) or returning the processed
+        text.
+        """
         if self.postprocess_mode == "none":
             return text, ""
         if self.postprocess_mode == "heuristic":
             return heuristic_punctuate(text), ""
+        if self.postprocess_mode == "smart":
+            # Load user config to read smart edit toggles; fall back to True
+            try:
+                cfg = load_user_config(CONFIG_FILE)
+            except Exception:
+                cfg = {}
+            try:
+                if bool(cfg.get("enable_filler_filter", True)):
+                    text = filter_filler_words(text)
+            except Exception:
+                # Be conservative: on error, keep original text
+                pass
+            try:
+                if bool(cfg.get("enable_self_correction", True)):
+                    text = detect_self_correction(text)
+            except Exception:
+                pass
+            if self.postprocess_program:
+                return run_postprocess_command(
+                    text,
+                    self.postprocess_program,
+                    self.postprocess_args,
+                    self.postprocess_timeout_sec,
+                )
+            return text, ""
         return run_postprocess_command(
             text,
             self.postprocess_program,
@@ -777,7 +916,7 @@ def parse_args():
     parser.add_argument("--local-model", default=None, help="local 模式模型名稱（tiny/base/small/...）")
     parser.add_argument("--local-device", choices=["auto", "cpu", "cuda"], default=None)
     parser.add_argument("--local-compute-type", default=None, help="auto/int8/float16")
-    parser.add_argument("--postprocess-mode", choices=["none", "heuristic", "command"], default=None)
+    parser.add_argument("--postprocess-mode", choices=["none", "heuristic", "command", "smart"], default=None)
     parser.add_argument("--postprocess-program", default=None, help="postprocess 程式（command 模式）")
     parser.add_argument("--postprocess-args", default=None, help="postprocess 參數（command 模式）")
     parser.add_argument("--postprocess-timeout-sec", type=float, default=None)
