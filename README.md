@@ -129,3 +129,9 @@ Smart Edit 範例：
   Smart Edit："今天天氣不錯，我想去公園散步。"
 
 （範例示意 Smart Edit 如何移除填充詞並補上標點與小幅修正語句。）
+
+## Backend: vosk
+
+- `backend: vosk`: 使用 Vosk 本機辨識引擎；可在設定面板指定模型路徑 (`vosk_model_path`)。若未提供模型，daemon 會嘗試協助取得或提示使用者下載適當模型到該路徑。
+- Streaming: 若啟用 `vosk_streaming`（設定面板選項），daemon 會啟動 Vosk 的低延遲 streaming 模式，逐步回傳中間辨識結果以降低延遲；未啟用時則採「停頓/句尾回傳」的行為。
+

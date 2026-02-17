@@ -37,6 +37,9 @@ DEFAULT_CONFIG = {
     "enable_context_memory": False,
     "context_length": 5,
     "auto_apply_on_save": True,
+    # Vosk backend settings
+    "vosk_model_path": "",
+    "vosk_streaming": False,
 }
 
 DEFAULT_HOTKEYS = ["Control+Alt+v", "Control+Alt+r", "F8", "Shift+F8"]
@@ -170,6 +173,10 @@ def main():
     local_device_var = tk.StringVar(value=str(cfg.get("local_device", "auto")))
     local_compute_var = tk.StringVar(value=str(cfg.get("local_compute_type", "auto")))
 
+    # Vosk-specific settings
+    vosk_model_path_var = tk.StringVar(value=str(cfg.get("vosk_model_path", "")))
+    vosk_streaming_var = tk.BooleanVar(value=to_bool(cfg.get("vosk_streaming", False), False))
+
     post_mode_var = tk.StringVar(value=str(cfg.get("postprocess_mode", "command")))
     provider_var = tk.StringVar(value=str(cfg.get("postprocess_provider", "copilot")))
     post_program_var = tk.StringVar(value=str(cfg.get("postprocess_program", "")))
@@ -183,10 +190,41 @@ def main():
 
     row = 0
     ttk.Label(frame, text="語音辨識後端").grid(row=row, column=0, sticky="w")
-    ttk.Combobox(frame, textvariable=backend_var, values=["google", "local"], state="readonly", width=24).grid(
+    ttk.Combobox(frame, textvariable=backend_var, values=["google", "local", "vosk"], state="readonly", width=24).grid(
         row=row, column=1, sticky="ew"
     )
     row += 1
+
+    # Vosk UI (hidden unless backend == 'vosk')
+    vosk_model_label = ttk.Label(frame, text="Vosk 模型路徑")
+    vosk_model_entry = ttk.Entry(frame, textvariable=vosk_model_path_var, width=64)
+    vosk_streaming_check = ttk.Checkbutton(frame, text="啟用 Vosk streaming（低延遲）", variable=vosk_streaming_var)
+
+    vosk_row = row
+    vosk_row2 = row + 1
+    row += 2
+
+    def update_backend_ui(*_args):
+        b = backend_var.get().strip()
+        if b == "vosk":
+            vosk_model_label.grid(row=vosk_row, column=0, sticky="w", pady=(8, 0))
+            vosk_model_entry.grid(row=vosk_row, column=1, sticky="ew", pady=(8, 0))
+            vosk_streaming_check.grid(row=vosk_row2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        else:
+            try:
+                vosk_model_label.grid_remove()
+                vosk_model_entry.grid_remove()
+                vosk_streaming_check.grid_remove()
+            except Exception:
+                pass
+
+    # Update UI when backend selection changes
+    try:
+        backend_var.trace("w", lambda *args: update_backend_ui())
+    except Exception:
+        # Fallback if trace not available
+        pass
+    update_backend_ui()
 
     ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
     ttk.Entry(frame, textvariable=language_var, width=28).grid(row=row, column=1, sticky="ew", pady=(8, 0))
@@ -405,6 +443,8 @@ def main():
             "enable_context_memory": bool(enable_context_memory_var.get()),
             "context_length": int(context_length_var.get()),
             "auto_apply_on_save": bool(auto_apply_var.get()),
+            "vosk_model_path": vosk_model_path_var.get().strip(),
+            "vosk_streaming": bool(vosk_streaming_var.get()),
         }
 
         save_config(new_cfg, new_hotkeys)
