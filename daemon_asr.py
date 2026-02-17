@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 from collections import deque
+from typing import Optional, Callable
 
 import numpy as np
 
@@ -152,6 +153,89 @@ CONFIG_DIR = os.path.join(CONFIG_HOME, "asr-ime-fcitx")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 HOTKEY_FILE = os.path.join(CONFIG_DIR, "hotkeys.conf")
 
+# Vosk model download/config
+VOSK_MODEL_DIR = os.path.expanduser("~/.cache/asr-ime-fcitx/vosk-models")
+VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+
+
+def download_vosk_model(model_name: str = "vosk-model-small-cn-0.22") -> str:
+    """Download and extract a Vosk model into the cache directory.
+
+    If the model directory already exists, the function returns its path.
+    On success returns the absolute path to the extracted model directory.
+    Raises RuntimeError on failure.
+    """
+    model_path = os.path.join(VOSK_MODEL_DIR, model_name)
+    if os.path.exists(model_path):
+        return model_path
+    os.makedirs(VOSK_MODEL_DIR, exist_ok=True)
+    zip_path = os.path.join(VOSK_MODEL_DIR, model_name + ".zip")
+    try:
+        import urllib.request
+        import zipfile
+
+        print(f"Downloading Vosk model {model_name}...")
+        urllib.request.urlretrieve(VOSK_MODEL_URL, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(VOSK_MODEL_DIR)
+        try:
+            os.remove(zip_path)
+        except Exception:
+            pass
+        return model_path
+    except Exception as e:
+        raise RuntimeError(f"Failed to download or extract Vosk model: {e}")
+
+
+class VoskStreamingRecognizer:
+    """A thin wrapper around vosk.Model and KaldiRecognizer for streaming.
+
+    process_chunk accepts a mono float32 numpy array and returns a tuple of
+    (text, status) where status is either 'partial' or 'final'.
+    """
+
+    def __init__(self, model_path: str, sample_rate: int = 16000):
+        try:
+            from vosk import Model, KaldiRecognizer  # type: ignore
+        except Exception:
+            raise RuntimeError("Missing vosk, please pip install vosk")
+        self.model = Model(model_path)
+        self.sample_rate = int(sample_rate)
+        self.rec = KaldiRecognizer(self.model, float(self.sample_rate))
+
+    def process_chunk(self, audio_chunk: np.ndarray) -> tuple[str, str]:
+        """Process a short audio chunk and return (text, status).
+
+        audio_chunk should be a mono float32 numpy array in range [-1.0, 1.0].
+        Returns (partial_text, 'partial') or (final_text, 'final').
+        """
+        if audio_chunk.dtype != np.float32:
+            audio_chunk = audio_chunk.astype(np.float32, copy=False)
+        pcm16 = np.clip(audio_chunk, -1.0, 1.0)
+        data = (pcm16 * 32767).astype(np.int16).tobytes()
+        if self.rec.AcceptWaveform(data):
+            try:
+                res = json.loads(self.rec.Result())
+            except Exception:
+                return "", "final"
+            return res.get("text", ""), "final"
+        try:
+            pres = json.loads(self.rec.PartialResult())
+        except Exception:
+            return "", "partial"
+        return pres.get("partial", ""), "partial"
+
+    def reset(self) -> None:
+        """Reset the internal recognizer state for a new utterance."""
+        try:
+            self.rec.Reset()
+        except Exception:
+            # Some vosk versions may not expose Reset; recreate recognizer instead
+            from vosk import KaldiRecognizer  # type: ignore
+
+            self.rec = KaldiRecognizer(self.model, float(self.sample_rate))
+
+
 DEFAULT_CONFIG = {
     "backend": "google",
     "language": "zh-TW",
@@ -182,6 +266,28 @@ def notify(summary, body=""):
         cmd.append(body)
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def show_partial_result(text: str) -> None:
+    """Show a transient notification for partial ASR results."""
+    notify_bin = shutil.which("notify-send")
+    if not notify_bin:
+        return
+    try:
+        subprocess.run([notify_bin, "ASR Partial Result", str(text)], check=False)
+    except Exception:
+        pass
+
+
+def show_final_result(text: str) -> None:
+    """Show a notification for the final ASR result."""
+    notify_bin = shutil.which("notify-send")
+    if not notify_bin:
+        return
+    try:
+        subprocess.run([notify_bin, "ASR Final Result", str(text)], check=False)
     except Exception:
         pass
 
