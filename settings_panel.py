@@ -34,6 +34,8 @@ DEFAULT_CONFIG = {
     "postprocess_timeout_sec": 12,
     "enable_filler_filter": True,
     "enable_self_correction": True,
+    "enable_context_memory": False,
+    "context_length": 5,
     "auto_apply_on_save": True,
 }
 
@@ -175,6 +177,8 @@ def main():
     post_timeout_var = tk.StringVar(value=str(cfg.get("postprocess_timeout_sec", 12)))
     enable_filler_filter_var = tk.BooleanVar(value=to_bool(cfg.get("enable_filler_filter", True), True))
     enable_self_correction_var = tk.BooleanVar(value=to_bool(cfg.get("enable_self_correction", True), True))
+    enable_context_memory_var = tk.BooleanVar(value=to_bool(cfg.get("enable_context_memory", False), False))
+    context_length_var = tk.IntVar(value=int(cfg.get("context_length", 5)))
     auto_apply_var = tk.BooleanVar(value=to_bool(cfg.get("auto_apply_on_save", True), True))
 
     row = 0
@@ -294,6 +298,17 @@ def main():
     ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 0))
     row += 1
 
+    ttk.Checkbutton(
+        frame,
+        text="啟用上下文記憶（保留先前辨識內容以供後處理）",
+        variable=enable_context_memory_var,
+    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 0))
+    row += 1
+
+    ttk.Label(frame, text="上下文長度（句數）").grid(row=row, column=0, sticky="w", pady=(2, 0))
+    tk.Spinbox(frame, from_=1, to=50, textvariable=context_length_var, width=8).grid(row=row, column=1, sticky="w", pady=(2, 0))
+    row += 1
+
     sep2 = ttk.Separator(frame, orient="horizontal")
     sep2.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
     row += 1
@@ -387,6 +402,8 @@ def main():
             "postprocess_timeout_sec": timeout_value,
             "enable_filler_filter": bool(enable_filler_filter_var.get()),
             "enable_self_correction": bool(enable_self_correction_var.get()),
+            "enable_context_memory": bool(enable_context_memory_var.get()),
+            "context_length": int(context_length_var.get()),
             "auto_apply_on_save": bool(auto_apply_var.get()),
         }
 
