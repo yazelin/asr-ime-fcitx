@@ -298,16 +298,6 @@ def main():
     sep2.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
     row += 1
 
-    # Smart edit options
-    ttk.Checkbutton(frame, text="啟用智慧編輯：過濾填詞（嗯/啊/um/uh）", variable=enable_filler_filter_var).grid(
-        row=row, column=0, columnspan=2, sticky="w", pady=(8, 0)
-    )
-    row += 1
-    ttk.Checkbutton(frame, text="啟用智慧編輯：偵測並套用更正（不是A而是B）", variable=enable_self_correction_var).grid(
-        row=row, column=0, columnspan=2, sticky="w", pady=(8, 0)
-    )
-    row += 1
-
     ttk.Label(frame, text="熱鍵（每行一個，Fcitx Key 格式）").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 4))
     row += 1
 
