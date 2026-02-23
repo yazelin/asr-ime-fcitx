@@ -10,6 +10,12 @@ for _m in ("numpy", "sounddevice", "speech_recognition", "faster_whisper", "open
     if _m not in sys.modules:
         sys.modules[_m] = types.ModuleType(_m)
 # Provide expected attributes used by daemon_asr imports
+_np = sys.modules["numpy"]
+if not hasattr(_np, "ndarray"):
+    _np.ndarray = type("ndarray", (), {})
+    _np.float32 = "float32"
+    _np.int16 = "int16"
+    _np.clip = lambda x, a, b: x
 sys.modules.setdefault("faster_whisper").WhisperModel = None
 sys.modules.setdefault("opencc").OpenCC = None
 # Minimal Recognizer stub for speech_recognition
