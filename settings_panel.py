@@ -19,47 +19,20 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 HOTKEY_FILE = CONFIG_DIR / "hotkeys.conf"
 
 DEFAULT_CONFIG = {
-    "backend": "google",
+    "backend": "local",
     "language": "zh-TW",
-    "tone": "casual",
     "input_device": "auto",
     "force_traditional": True,
-    "process_on_stop": True,
-    "local_model": "small",
+    "process_on_stop": False,
+    "speech_threshold": 0.13,
+    "local_model": "large-v3",
     "local_device": "auto",
     "local_compute_type": "auto",
-    "postprocess_mode": "command",
-    "postprocess_provider": "copilot",
-    "postprocess_program": "copilot",
-    "postprocess_args": '-s --model gpt-5-mini -p "請將以下語音辨識結果改寫為繁體中文，補上自然標點、斷句與段落；不要新增內容，只回傳結果：{text}" --allow-all',
-    "postprocess_timeout_sec": 12,
-    "enable_filler_filter": True,
-    "enable_self_correction": True,
-    "enable_context_memory": False,
-    "context_length": 5,
+    "postprocess_mode": "heuristic",
     "auto_apply_on_save": True,
-    # Vosk backend settings
-    "vosk_model_path": "",
-    "vosk_streaming": False,
 }
 
-DEFAULT_HOTKEYS = ["Control+Alt+v", "Control+Alt+r", "F8", "Shift+F8"]
-
-PROVIDER_PRESETS = {
-    "custom": ("", ""),
-    "copilot": (
-        "copilot",
-        '-s --model gpt-5-mini -p "請將以下語音辨識結果改寫為繁體中文，補上自然標點、斷句與段落；不要新增內容，只回傳結果：{text}" --allow-all',
-    ),
-    "gemini": (
-        "gemini",
-        "--output-format text -p 請幫以下語句加入自然中文標點與斷句，只回傳處理後文字：{text}",
-    ),
-    "claude-code": (
-        "claude",
-        "-p --output-format text --permission-mode dontAsk 請幫以下語句加入自然中文標點與斷句，只回傳處理後文字：{text}",
-    ),
-}
+DEFAULT_HOTKEYS = ["F8"]
 
 
 def to_bool(value, default):
@@ -140,8 +113,8 @@ def main():
     root.title("ASR IME 設定面板")
     scaling = float(root.tk.call("tk", "scaling"))
     ui_scale = max(1.0, scaling / 1.4)
-    root.geometry(f"{int(840 * ui_scale)}x{int(760 * ui_scale)}")
-    root.minsize(720, 560)
+    root.geometry(f"{int(640 * ui_scale)}x{int(520 * ui_scale)}")
+    root.minsize(520, 400)
     root.resizable(True, True)
 
     outer = ttk.Frame(root)
@@ -165,76 +138,21 @@ def main():
     canvas.bind("<Configure>", sync_frame_width)
     frame.columnconfigure(1, weight=1)
 
-    backend_var = tk.StringVar(value=str(cfg.get("backend", "google")))
-    tone_var = tk.StringVar(value=str(cfg.get("tone", "casual")))
-    language_var = tk.StringVar(value=str(cfg.get("language", "zh-TW")))
+    backend_var = tk.StringVar(value=str(cfg.get("backend", "local")))
     input_device_var = tk.StringVar(value=str(cfg.get("input_device", "auto")))
     force_traditional_var = tk.BooleanVar(value=to_bool(cfg.get("force_traditional", True), True))
-    process_on_stop_var = tk.BooleanVar(value=to_bool(cfg.get("process_on_stop", True), True))
-    local_model_var = tk.StringVar(value=str(cfg.get("local_model", "small")))
+    process_on_stop_var = tk.BooleanVar(value=to_bool(cfg.get("process_on_stop", False), False))
+    speech_threshold_var = tk.StringVar(value=str(cfg.get("speech_threshold", 0.13)))
+    local_model_var = tk.StringVar(value=str(cfg.get("local_model", "large-v3")))
     local_device_var = tk.StringVar(value=str(cfg.get("local_device", "auto")))
     local_compute_var = tk.StringVar(value=str(cfg.get("local_compute_type", "auto")))
-
-    # Vosk-specific settings
-    vosk_model_path_var = tk.StringVar(value=str(cfg.get("vosk_model_path", "")))
-    vosk_streaming_var = tk.BooleanVar(value=to_bool(cfg.get("vosk_streaming", False), False))
-
-    post_mode_var = tk.StringVar(value=str(cfg.get("postprocess_mode", "command")))
-    provider_var = tk.StringVar(value=str(cfg.get("postprocess_provider", "copilot")))
-    post_program_var = tk.StringVar(value=str(cfg.get("postprocess_program", "")))
-    post_args_var = tk.StringVar(value=str(cfg.get("postprocess_args", "")))
-    post_timeout_var = tk.StringVar(value=str(cfg.get("postprocess_timeout_sec", 12)))
-    enable_filler_filter_var = tk.BooleanVar(value=to_bool(cfg.get("enable_filler_filter", True), True))
-    enable_self_correction_var = tk.BooleanVar(value=to_bool(cfg.get("enable_self_correction", True), True))
-    enable_context_memory_var = tk.BooleanVar(value=to_bool(cfg.get("enable_context_memory", False), False))
-    context_length_var = tk.IntVar(value=int(cfg.get("context_length", 5)))
     auto_apply_var = tk.BooleanVar(value=to_bool(cfg.get("auto_apply_on_save", True), True))
 
     row = 0
     ttk.Label(frame, text="語音辨識後端").grid(row=row, column=0, sticky="w")
-    ttk.Combobox(frame, textvariable=backend_var, values=["google", "local", "vosk"], state="readonly", width=24).grid(
+    ttk.Combobox(frame, textvariable=backend_var, values=["local", "google"], state="readonly", width=24).grid(
         row=row, column=1, sticky="ew"
     )
-    row += 1
-
-    # Vosk UI (hidden unless backend == 'vosk')
-    vosk_model_label = ttk.Label(frame, text="Vosk 模型路徑")
-    vosk_model_entry = ttk.Entry(frame, textvariable=vosk_model_path_var, width=64)
-    vosk_streaming_check = ttk.Checkbutton(frame, text="啟用 Vosk streaming（低延遲）", variable=vosk_streaming_var)
-
-    vosk_row = row
-    vosk_row2 = row + 1
-    row += 2
-
-    def update_backend_ui(*_args):
-        b = backend_var.get().strip()
-        if b == "vosk":
-            vosk_model_label.grid(row=vosk_row, column=0, sticky="w", pady=(8, 0))
-            vosk_model_entry.grid(row=vosk_row, column=1, sticky="ew", pady=(8, 0))
-            vosk_streaming_check.grid(row=vosk_row2, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        else:
-            try:
-                vosk_model_label.grid_remove()
-                vosk_model_entry.grid_remove()
-                vosk_streaming_check.grid_remove()
-            except Exception:
-                pass
-
-    # Update UI when backend selection changes
-    try:
-        backend_var.trace("w", lambda *args: update_backend_ui())
-    except Exception:
-        # Fallback if trace not available
-        pass
-    update_backend_ui()
-
-    ttk.Label(frame, text="語調").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Combobox(frame, textvariable=tone_var, values=["casual","formal","professional","creative"], state="readonly", width=24).grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    row += 1
-
-    ttk.Label(frame, text="語言").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Combobox(frame, textvariable=language_var, values=["zh-TW","en-US","ja-JP"], state="readonly", width=24).grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    tk.Label(frame, text="Ctrl+Alt+L", fg="gray").grid(row=row, column=2, sticky="w", padx=(8,0), pady=(8,0))
     row += 1
 
     input_device_row = row
@@ -254,6 +172,15 @@ def main():
         text="只在切回 OFF 時辨識一次（建議背景吵雜時開啟）",
         variable=process_on_stop_var,
     ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    row += 1
+
+    ttk.Label(frame, text="語音門檻（背景噪音過濾）").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Entry(frame, textvariable=speech_threshold_var, width=10).grid(row=row, column=1, sticky="w", pady=(8, 0))
+    tk.Label(frame, text="越大越不容易誤觸，建議 0.05~0.3", fg="gray").grid(row=row, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+    row += 1
+
+    sep1 = ttk.Separator(frame, orient="horizontal")
+    sep1.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
     row += 1
 
     ttk.Label(frame, text="本機模型").grid(row=row, column=0, sticky="w", pady=(8, 0))
@@ -285,103 +212,14 @@ def main():
     ).grid(row=row, column=1, sticky="ew", pady=(8, 0))
     row += 1
 
-    sep1 = ttk.Separator(frame, orient="horizontal")
-    sep1.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
-    row += 1
-
-    ttk.Label(frame, text="文字後處理（標點/斷句）模式").grid(row=row, column=0, sticky="w")
-    ttk.Combobox(
-        frame,
-        textvariable=post_mode_var,
-        values=["none", "heuristic", "smart", "command"],
-        state="readonly",
-        width=24,
-    ).grid(row=row, column=1, sticky="ew")
-    row += 1
-
-    ttk.Label(frame, text="標點模型供應商（快速套用）").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    provider_box = ttk.Combobox(
-        frame,
-        textvariable=provider_var,
-        values=["custom", "copilot", "gemini", "claude-code"],
-        state="readonly",
-        width=24,
-    )
-    provider_box.grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    row += 1
-
-    ttk.Label(frame, text="程式（program）").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_program_var, width=40).grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    row += 1
-
-    ttk.Label(frame, text="參數（args）").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_args_var, width=64).grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    row += 1
-
-    ttk.Label(frame, text="逾時秒數").grid(row=row, column=0, sticky="w", pady=(8, 0))
-    ttk.Entry(frame, textvariable=post_timeout_var, width=12).grid(row=row, column=1, sticky="ew", pady=(8, 0))
-    row += 1
-
-    ttk.Label(
-        frame,
-        text="command 模式會把辨識文字送到 stdin；若 args 含 {text} 會直接代入。",
-    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
-    row += 1
-
-    # Smart edit related toggles
-    ttk.Checkbutton(
-        frame,
-        text="啟用填充詞過濾（移除「啊、嗯」等無意義詞）",
-        variable=enable_filler_filter_var,
-    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
-    row += 1
-
-    ttk.Checkbutton(
-        frame,
-        text="啟用自動更正（小幅修正錯字/語句以保持語意）",
-        variable=enable_self_correction_var,
-    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 0))
-    row += 1
-
-    ttk.Checkbutton(
-        frame,
-        text="啟用上下文記憶（保留先前辨識內容以供後處理）",
-        variable=enable_context_memory_var,
-    ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(2, 0))
-    row += 1
-
-    ttk.Label(frame, text="上下文長度（句數）").grid(row=row, column=0, sticky="w", pady=(2, 0))
-    tk.Spinbox(frame, from_=1, to=50, textvariable=context_length_var, width=8).grid(row=row, column=1, sticky="w", pady=(2, 0))
-    row += 1
-
     sep2 = ttk.Separator(frame, orient="horizontal")
     sep2.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(14, 8))
-    row += 1
-
-    ttk.Label(frame, text="熱鍵（每行一個，Fcitx Key 格式）").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 4))
-    row += 1
-
-    hotkey_text = tk.Text(frame, height=8, width=68)
-    hotkey_text.grid(row=row, column=0, columnspan=2, sticky="ew")
-    hotkey_text.insert("1.0", "\n".join(hotkeys))
     row += 1
 
     ttk.Checkbutton(frame, text="儲存後自動套用（reload + restart）", variable=auto_apply_var).grid(
         row=row, column=0, columnspan=2, sticky="w", pady=(10, 0)
     )
     row += 1
-
-    def on_provider_change(_event=None):
-        provider = provider_var.get().strip()
-        if provider not in PROVIDER_PRESETS or provider == "custom":
-            return
-        program, args = PROVIDER_PRESETS[provider]
-        post_program_var.set(program)
-        post_args_var.set(args)
-        if post_mode_var.get() == "none":
-            post_mode_var.set("command")
-
-    provider_box.bind("<<ComboboxSelected>>", on_provider_change)
 
     def on_list_devices():
         py_bin = script_dir / ".venv" / "bin" / "python"
@@ -414,48 +252,21 @@ def main():
     )
 
     def on_save():
-        language = language_var.get().strip()
-        if not language:
-            messagebox.showerror("錯誤", "語言不可空白")
-            return
-
-        hotkey_lines = hotkey_text.get("1.0", "end").splitlines()
-        new_hotkeys = [line.strip() for line in hotkey_lines if line.strip() and not line.strip().startswith("#")]
-        if not new_hotkeys:
-            messagebox.showerror("錯誤", "至少要一個熱鍵")
-            return
-
-        try:
-            timeout_value = max(1.0, float(post_timeout_var.get().strip() or "12"))
-        except ValueError:
-            messagebox.showerror("錯誤", "逾時秒數格式錯誤")
-            return
-
         new_cfg = {
-            "backend": backend_var.get().strip() or "google",
-            "tone": tone_var.get().strip() or "casual",
-            "language": language,
+            "backend": backend_var.get().strip() or "local",
+            "language": "zh-TW",
             "input_device": input_device_var.get().strip() or "auto",
             "force_traditional": bool(force_traditional_var.get()),
             "process_on_stop": bool(process_on_stop_var.get()),
-            "local_model": local_model_var.get().strip() or "small",
+            "speech_threshold": float(speech_threshold_var.get().strip() or "0.13"),
+            "local_model": local_model_var.get().strip() or "large-v3",
             "local_device": local_device_var.get().strip() or "auto",
             "local_compute_type": local_compute_var.get().strip() or "auto",
-            "postprocess_mode": post_mode_var.get().strip() or "heuristic",
-            "postprocess_provider": provider_var.get().strip() or "custom",
-            "postprocess_program": post_program_var.get().strip(),
-            "postprocess_args": post_args_var.get().strip(),
-            "postprocess_timeout_sec": timeout_value,
-            "enable_filler_filter": bool(enable_filler_filter_var.get()),
-            "enable_self_correction": bool(enable_self_correction_var.get()),
-            "enable_context_memory": bool(enable_context_memory_var.get()),
-            "context_length": int(context_length_var.get()),
+            "postprocess_mode": "heuristic",
             "auto_apply_on_save": bool(auto_apply_var.get()),
-            "vosk_model_path": vosk_model_path_var.get().strip(),
-            "vosk_streaming": bool(vosk_streaming_var.get()),
         }
 
-        save_config(new_cfg, new_hotkeys)
+        save_config(new_cfg, ["F8"])
 
         if auto_apply_var.get():
             ok, msg = apply_runtime(script_dir)

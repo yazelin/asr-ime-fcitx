@@ -187,88 +187,6 @@ CONFIG_DIR = os.path.join(CONFIG_HOME, "asr-ime-fcitx")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 HOTKEY_FILE = os.path.join(CONFIG_DIR, "hotkeys.conf")
 
-# Vosk model download/config
-VOSK_MODEL_DIR = os.path.expanduser("~/.cache/asr-ime-fcitx/vosk-models")
-VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
-
-
-def download_vosk_model(model_name: str = "vosk-model-small-cn-0.22") -> str:
-    """Download and extract a Vosk model into the cache directory.
-
-    If the model directory already exists, the function returns its path.
-    On success returns the absolute path to the extracted model directory.
-    Raises RuntimeError on failure.
-    """
-    model_path = os.path.join(VOSK_MODEL_DIR, model_name)
-    if os.path.exists(model_path):
-        return model_path
-    os.makedirs(VOSK_MODEL_DIR, exist_ok=True)
-    zip_path = os.path.join(VOSK_MODEL_DIR, model_name + ".zip")
-    try:
-        import urllib.request
-        import zipfile
-
-        print(f"Downloading Vosk model {model_name}...")
-        urllib.request.urlretrieve(VOSK_MODEL_URL, zip_path)
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(VOSK_MODEL_DIR)
-        try:
-            os.remove(zip_path)
-        except Exception:
-            pass
-        return model_path
-    except Exception as e:
-        raise RuntimeError(f"Failed to download or extract Vosk model: {e}")
-
-
-class VoskStreamingRecognizer:
-    """A thin wrapper around vosk.Model and KaldiRecognizer for streaming.
-
-    process_chunk accepts a mono float32 numpy array and returns a tuple of
-    (text, status) where status is either 'partial' or 'final'.
-    """
-
-    def __init__(self, model_path: str, sample_rate: int = 16000):
-        try:
-            from vosk import Model, KaldiRecognizer  # type: ignore
-        except Exception:
-            raise RuntimeError("Missing vosk, please pip install vosk")
-        self.model = Model(model_path)
-        self.sample_rate = int(sample_rate)
-        self.rec = KaldiRecognizer(self.model, float(self.sample_rate))
-
-    def process_chunk(self, audio_chunk: np.ndarray) -> tuple[str, str]:
-        """Process a short audio chunk and return (text, status).
-
-        audio_chunk should be a mono float32 numpy array in range [-1.0, 1.0].
-        Returns (partial_text, 'partial') or (final_text, 'final').
-        """
-        if audio_chunk.dtype != np.float32:
-            audio_chunk = audio_chunk.astype(np.float32, copy=False)
-        pcm16 = np.clip(audio_chunk, -1.0, 1.0)
-        data = (pcm16 * 32767).astype(np.int16).tobytes()
-        if self.rec.AcceptWaveform(data):
-            try:
-                res = json.loads(self.rec.Result())
-            except Exception:
-                return "", "final"
-            return res.get("text", ""), "final"
-        try:
-            pres = json.loads(self.rec.PartialResult())
-        except Exception:
-            return "", "partial"
-        return pres.get("partial", ""), "partial"
-
-    def reset(self) -> None:
-        """Reset the internal recognizer state for a new utterance."""
-        try:
-            self.rec.Reset()
-        except Exception:
-            # Some vosk versions may not expose Reset; recreate recognizer instead
-            from vosk import KaldiRecognizer  # type: ignore
-
-            self.rec = KaldiRecognizer(self.model, float(self.sample_rate))
-
 
 DEFAULT_CONFIG = {
     "backend": "google",
@@ -324,6 +242,53 @@ def show_final_result(text: str) -> None:
         subprocess.run([notify_bin, "ASR Final Result", str(text)], check=False)
     except Exception:
         pass
+
+
+def get_primary_selection():
+    """Read X11 primary selection (mouse-selected text) via xclip."""
+    xclip = shutil.which("xclip")
+    if not xclip:
+        return ""
+    try:
+        proc = subprocess.run(
+            [xclip, "-selection", "primary", "-o"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def clear_primary_selection():
+    """Clear X11 primary selection so it won't trigger command mode again."""
+    xclip = shutil.which("xclip")
+    if not xclip:
+        return
+    try:
+        subprocess.run(
+            [xclip, "-selection", "primary", "-i"],
+            input="", capture_output=True, text=True, timeout=2,
+        )
+    except Exception:
+        pass
+
+
+def run_clipboard_command(instruction, selected_text, timeout=30):
+    """Send selected text + voice instruction to copilot and return result."""
+    copilot = shutil.which("copilot")
+    if not copilot:
+        return "", "copilot 未安裝"
+    prompt = f"{instruction}：\n\n{selected_text}"
+    cmd = [copilot, "-s", "--model", "gpt-5-mini", "-p", prompt, "--allow-all"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip(), ""
+        return "", proc.stderr.strip() or "copilot 無回應"
+    except subprocess.TimeoutExpired:
+        return "", f"copilot 逾時（{timeout}s）"
+    except Exception as e:
+        return "", str(e)
 
 
 def update_state(state_file, **kwargs):
@@ -412,6 +377,13 @@ def apply_config(args, cfg):
         args.backend = "google"
     if args.postprocess_mode not in {"none", "heuristic", "command", "smart"}:
         args.postprocess_mode = "heuristic"
+
+    # Speech threshold from config
+    if args.speech_threshold is None:
+        try:
+            args.speech_threshold = float(cfg.get("speech_threshold", 0.13))
+        except Exception:
+            args.speech_threshold = 0.13
 
     # Context memory config
     if getattr(args, 'enable_context_memory', None) is None:
@@ -697,6 +669,15 @@ class ToggleState:
         self._lock = threading.Lock()
         self._listening = False
         self._stopped = False
+        self._command_mode = False
+
+    def set_command_mode(self, value):
+        with self._lock:
+            self._command_mode = bool(value)
+
+    def is_command_mode(self):
+        with self._lock:
+            return self._command_mode
 
     def toggle(self):
         with self._lock:
@@ -740,8 +721,10 @@ class OnlineRecognizerWorker(threading.Thread):
         force_traditional,
         enable_context_memory=False,
         context_length=5,
+        toggle_state=None,
     ):
         super().__init__(daemon=True)
+        self.toggle_state = toggle_state
         self.backend = backend
         self.language = language
         self.commit_fifo = commit_fifo
@@ -1034,6 +1017,53 @@ class OnlineRecognizerWorker(threading.Thread):
                 continue
 
             raw_text = text
+
+            # Check if command mode is active
+            if self.toggle_state and self.toggle_state.is_command_mode():
+                self.toggle_state.set_command_mode(False)
+                selected = get_primary_selection()
+                if not selected:
+                    notify("ASR 指令失敗", "沒有選取文字")
+                    print("[command] no selection found")
+                    # Fall through to normal input
+                    self._write_commit(self.normalize_text(
+                        self.postprocess_text(raw_text)[0] or raw_text))
+                    continue
+                notify("ASR 指令處理中", f"指令：{text}")
+                print(f"[command] instruction={text!r} selected={len(selected)} chars")
+                cmd_start = time.perf_counter()
+                result, cmd_err = run_clipboard_command(text, selected)
+                cmd_sec = time.perf_counter() - cmd_start
+                if cmd_err:
+                    print(f"[command] error: {cmd_err} ({cmd_sec:.2f}s)")
+                    clear_primary_selection()
+                    notify("ASR 指令失敗", cmd_err)
+                    update_state(self.state_file, last_error=cmd_err)
+                    continue
+                result = self.normalize_text(result)
+                if not result:
+                    print(f"[command] empty result ({cmd_sec:.2f}s)")
+                    continue
+                self._write_commit(result)
+                update_state(
+                    self.state_file,
+                    last_text=result,
+                    last_raw_text=raw_text,
+                    last_error="",
+                    last_postprocess_error="",
+                    last_postprocess_sec=round(cmd_sec, 3),
+                    last_postprocess_changed=True,
+                )
+                clear_primary_selection()
+                notify("ASR 指令完成", result[:80])
+                print(f"[command] {result[:60]}  ({cmd_sec:.2f}s)")
+                e2e_sec = time.perf_counter() - queued_at
+                print(
+                    f"[asr:{self.backend}] {text}  "
+                    f"(audio {speech_seconds:.2f}s / decode {decode_sec:.2f}s / e2e {e2e_sec:.2f}s)"
+                )
+                continue
+
             pp_start = time.perf_counter()
             text, pp_err = self.postprocess_text(raw_text)
             pp_sec = time.perf_counter() - pp_start
@@ -1100,6 +1130,12 @@ def command_loop(cmd_fifo, state, state_file):
                         state.stop()
                         update_state(state_file, listening=False)
                         return
+                    elif cmd == "command":
+                        state.set_command_mode(True)
+                        listening = state.toggle() if not state.listening() else True
+                        print("listening ON (command mode)")
+                        update_state(state_file, listening=True)
+                        notify("ASR 指令模式", "請說出指令（例如：翻譯成繁體中文）")
                     elif cmd == "switch_language":
                         try:
                             cur = load_current_language(state_file)
@@ -1178,7 +1214,7 @@ def stream_loop(args, state, input_device, capture_rate, worker):
         device=input_device,
         blocksize=blocksize,
     ):
-        print("daemon ready: hotkeys Ctrl+Alt+V / Ctrl+Alt+R / F8 / Shift+F8 (or ./start.sh --toggle).")
+        print("daemon ready: hotkey F8 (or ./start.sh --toggle).")
         while not state.stopped():
             listening = state.listening()
             if listening != last_state:
@@ -1284,7 +1320,7 @@ def parse_args():
     parser.add_argument("--sample-rate", type=int, default=TARGET_SAMPLE_RATE)
     parser.add_argument("--enable-context-memory", action="store_true", default=None)
     parser.add_argument("--context-length", type=int, default=None)
-    parser.add_argument("--speech-threshold", type=float, default=0.005)
+    parser.add_argument("--speech-threshold", type=float, default=None)
     parser.add_argument("--silence-sec", type=float, default=0.35)
     parser.add_argument("--min-speech-sec", type=float, default=0.15)
     parser.add_argument("--max-phrase-sec", type=float, default=0.0, help="最大片段秒數，0=關閉硬切")
@@ -1390,6 +1426,7 @@ def main():
             force_traditional=args.force_traditional,
             enable_context_memory=args.enable_context_memory,
             context_length=args.context_length,
+            toggle_state=state,
         )
     except Exception as e:
         msg = f"辨識器初始化失敗：{e}"

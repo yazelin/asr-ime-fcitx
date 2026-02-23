@@ -346,7 +346,8 @@ if [[ "$current_im" != "asrime" ]]; then
 else
   echo "目前輸入法：asrime ✅"
 fi
-echo "熱鍵：Ctrl+Alt+V / Ctrl+Alt+R / F8 / Shift+F8"
+hotkey_list=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/asr-ime-fcitx/hotkeys.conf" 2>/dev/null | tr '\n' ' ' || echo "F8")
+echo "熱鍵：${hotkey_list:-F8}"
 echo "也可用：./start.sh --toggle"
 echo "查看日誌：tail -f $LOG_FILE"
 print_runtime_state
