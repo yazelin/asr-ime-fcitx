@@ -273,20 +273,77 @@ def clear_primary_selection():
         pass
 
 
-def run_clipboard_command(instruction, selected_text, timeout=30):
-    """Send selected text + voice instruction to copilot and return result."""
-    copilot = shutil.which("copilot")
-    if not copilot:
-        return "", "copilot 未安裝"
+def set_clipboard(text):
+    """Write text to X11 clipboard (Ctrl+V) via xclip."""
+    xclip = shutil.which("xclip")
+    if not xclip:
+        return False
+    try:
+        subprocess.run(
+            [xclip, "-selection", "clipboard", "-i"],
+            input=text, capture_output=True, text=True, timeout=2,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _find_copilot():
+    """Find copilot binary, searching common extra paths."""
+    found = shutil.which("copilot")
+    if found:
+        return found
+    extra_dirs = []
+    home = os.path.expanduser("~")
+    # nvm node paths
+    nvm_dir = os.path.join(home, ".nvm", "versions", "node")
+    if os.path.isdir(nvm_dir):
+        for entry in sorted(os.listdir(nvm_dir), reverse=True):
+            extra_dirs.append(os.path.join(nvm_dir, entry, "bin"))
+    extra_dirs.append(os.path.join(home, ".local", "bin"))
+    extra_dirs.append(os.path.join(home, "bin"))
+    for d in extra_dirs:
+        p = os.path.join(d, "copilot")
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def _find_claude():
+    """Find claude CLI binary."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    home = os.path.expanduser("~")
+    for d in [os.path.join(home, ".local", "bin"), os.path.join(home, "bin")]:
+        p = os.path.join(d, "claude")
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def run_clipboard_command(instruction, selected_text, timeout=60, provider="copilot"):
+    """Send selected text + voice instruction to AI and return result."""
     prompt = f"{instruction}：\n\n{selected_text}"
-    cmd = [copilot, "-s", "--model", "gpt-5-mini", "-p", prompt, "--allow-all"]
+
+    if provider == "claude":
+        claude = _find_claude()
+        if not claude:
+            return "", "claude 未安裝"
+        cmd = [claude, "-p", prompt, "--model", "haiku", "--tools", ""]
+    else:
+        copilot = _find_copilot()
+        if not copilot:
+            return "", "copilot 未安裝"
+        cmd = [copilot, "-s", "--model", "gpt-5-mini", "-p", prompt, "--allow-all"]
+
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip(), ""
-        return "", proc.stderr.strip() or "copilot 無回應"
+        return "", proc.stderr.strip() or f"{provider} 無回應"
     except subprocess.TimeoutExpired:
-        return "", f"copilot 逾時（{timeout}s）"
+        return "", f"{provider} 逾時（{timeout}s）"
     except Exception as e:
         return "", str(e)
 
@@ -384,6 +441,10 @@ def apply_config(args, cfg):
             args.speech_threshold = float(cfg.get("speech_threshold", 0.13))
         except Exception:
             args.speech_threshold = 0.13
+
+    # Command provider for Shift+F8 command mode
+    if args.command_provider is None:
+        args.command_provider = str(cfg.get("command_provider", "copilot"))
 
     # Context memory config
     if getattr(args, 'enable_context_memory', None) is None:
@@ -722,9 +783,11 @@ class OnlineRecognizerWorker(threading.Thread):
         enable_context_memory=False,
         context_length=5,
         toggle_state=None,
+        command_provider="copilot",
     ):
         super().__init__(daemon=True)
         self.toggle_state = toggle_state
+        self.command_provider = command_provider
         self.backend = backend
         self.language = language
         self.commit_fifo = commit_fifo
@@ -812,6 +875,37 @@ class OnlineRecognizerWorker(threading.Thread):
             except queue.Empty:
                 pass
             self.jobs.put_nowait(payload)
+
+    def _run_command_bg(self, instruction, selected, raw_text, speech_seconds, decode_sec, queued_at):
+        """Run command mode processing in background thread."""
+        notify("ASR 指令處理中", f"指令：{instruction}（{self.command_provider}）")
+        print(f"[command] instruction={instruction!r} selected={len(selected)} chars provider={self.command_provider}")
+        cmd_start = time.perf_counter()
+        result, cmd_err = run_clipboard_command(instruction, selected, provider=self.command_provider)
+        cmd_sec = time.perf_counter() - cmd_start
+        if cmd_err:
+            print(f"[command] error: {cmd_err} ({cmd_sec:.2f}s)")
+            clear_primary_selection()
+            notify("ASR 指令失敗", cmd_err)
+            update_state(self.state_file, last_error=cmd_err)
+            return
+        result = self.normalize_text(result)
+        if not result:
+            print(f"[command] empty result ({cmd_sec:.2f}s)")
+            return
+        set_clipboard(result)
+        clear_primary_selection()
+        update_state(
+            self.state_file,
+            last_text=result,
+            last_raw_text=raw_text,
+            last_error="",
+            last_postprocess_error="",
+            last_postprocess_sec=round(cmd_sec, 3),
+            last_postprocess_changed=True,
+        )
+        notify("ASR 指令完成，Ctrl+V 貼上", result[:80])
+        print(f"[command] {result[:60]}  ({cmd_sec:.2f}s)")
 
     def _write_commit(self, text):
         if not text:
@@ -1029,34 +1123,13 @@ class OnlineRecognizerWorker(threading.Thread):
                     self._write_commit(self.normalize_text(
                         self.postprocess_text(raw_text)[0] or raw_text))
                     continue
-                notify("ASR 指令處理中", f"指令：{text}")
-                print(f"[command] instruction={text!r} selected={len(selected)} chars")
-                cmd_start = time.perf_counter()
-                result, cmd_err = run_clipboard_command(text, selected)
-                cmd_sec = time.perf_counter() - cmd_start
-                if cmd_err:
-                    print(f"[command] error: {cmd_err} ({cmd_sec:.2f}s)")
-                    clear_primary_selection()
-                    notify("ASR 指令失敗", cmd_err)
-                    update_state(self.state_file, last_error=cmd_err)
-                    continue
-                result = self.normalize_text(result)
-                if not result:
-                    print(f"[command] empty result ({cmd_sec:.2f}s)")
-                    continue
-                self._write_commit(result)
-                update_state(
-                    self.state_file,
-                    last_text=result,
-                    last_raw_text=raw_text,
-                    last_error="",
-                    last_postprocess_error="",
-                    last_postprocess_sec=round(cmd_sec, 3),
-                    last_postprocess_changed=True,
-                )
-                clear_primary_selection()
-                notify("ASR 指令完成", result[:80])
-                print(f"[command] {result[:60]}  ({cmd_sec:.2f}s)")
+                # Run command in background so ASR keeps working
+                threading.Thread(
+                    target=self._run_command_bg,
+                    args=(text, selected, raw_text, speech_seconds, decode_sec, queued_at),
+                    daemon=True,
+                ).start()
+                print(f"[command] dispatched: {text!r} selected={len(selected)} chars (provider={self.command_provider})")
                 e2e_sec = time.perf_counter() - queued_at
                 print(
                     f"[asr:{self.backend}] {text}  "
@@ -1320,6 +1393,7 @@ def parse_args():
     parser.add_argument("--sample-rate", type=int, default=TARGET_SAMPLE_RATE)
     parser.add_argument("--enable-context-memory", action="store_true", default=None)
     parser.add_argument("--context-length", type=int, default=None)
+    parser.add_argument("--command-provider", choices=["copilot", "claude"], default=None)
     parser.add_argument("--speech-threshold", type=float, default=None)
     parser.add_argument("--silence-sec", type=float, default=0.35)
     parser.add_argument("--min-speech-sec", type=float, default=0.15)
@@ -1427,6 +1501,7 @@ def main():
             enable_context_memory=args.enable_context_memory,
             context_length=args.context_length,
             toggle_state=state,
+            command_provider=args.command_provider,
         )
     except Exception as e:
         msg = f"辨識器初始化失敗：{e}"

@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
     "local_device": "auto",
     "local_compute_type": "auto",
     "postprocess_mode": "heuristic",
+    "command_provider": "copilot",
     "auto_apply_on_save": True,
 }
 
@@ -146,6 +147,7 @@ def main():
     local_model_var = tk.StringVar(value=str(cfg.get("local_model", "large-v3")))
     local_device_var = tk.StringVar(value=str(cfg.get("local_device", "auto")))
     local_compute_var = tk.StringVar(value=str(cfg.get("local_compute_type", "auto")))
+    command_provider_var = tk.StringVar(value=str(cfg.get("command_provider", "copilot")))
     auto_apply_var = tk.BooleanVar(value=to_bool(cfg.get("auto_apply_on_save", True), True))
 
     row = 0
@@ -177,6 +179,13 @@ def main():
     ttk.Label(frame, text="語音門檻（背景噪音過濾）").grid(row=row, column=0, sticky="w", pady=(8, 0))
     ttk.Entry(frame, textvariable=speech_threshold_var, width=10).grid(row=row, column=1, sticky="w", pady=(8, 0))
     tk.Label(frame, text="越大越不容易誤觸，建議 0.05~0.3", fg="gray").grid(row=row, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+    row += 1
+
+    ttk.Label(frame, text="指令模式 AI（Shift+F8）").grid(row=row, column=0, sticky="w", pady=(8, 0))
+    ttk.Combobox(frame, textvariable=command_provider_var, values=["copilot", "claude"], state="readonly", width=24).grid(
+        row=row, column=1, sticky="ew", pady=(8, 0)
+    )
+    tk.Label(frame, text="copilot=GPT-5-mini / claude=Haiku", fg="gray").grid(row=row, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
     row += 1
 
     sep1 = ttk.Separator(frame, orient="horizontal")
@@ -263,6 +272,7 @@ def main():
             "local_device": local_device_var.get().strip() or "auto",
             "local_compute_type": local_compute_var.get().strip() or "auto",
             "postprocess_mode": "heuristic",
+            "command_provider": command_provider_var.get().strip() or "copilot",
             "auto_apply_on_save": bool(auto_apply_var.get()),
         }
 

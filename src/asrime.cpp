@@ -164,14 +164,16 @@ public:
             activeIC_ = keyEvent.inputContext();
         }
 
+        auto key = keyEvent.key();
+
         // Shift+F8 → command mode (voice command on selected text)
-        if (keyEvent.key().normalize().check(fcitx::Key("Shift+F8"))) {
+        if (key.check(fcitx::Key("Shift+F8"))) {
             sendCommand("command\n");
             keyEvent.filterAndAccept();
             return;
         }
 
-        if (keyEvent.key().normalize().checkKeyList(toggleKeys_)) {
+        if (key.normalize().checkKeyList(toggleKeys_)) {
             sendCommand("toggle\n");
             keyEvent.filterAndAccept();
         }
